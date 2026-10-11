@@ -37,6 +37,12 @@ async def serve(filename: str) -> FileResponse:
         headers={
             # The name is random and never reused, so the file at a given URL
             # can never change.
-            "Cache-Control": "public, max-age=31536000, immutable"
+            "Cache-Control": "public, max-age=31536000, immutable",
+            # Served from the app's own origin, so a file opened directly must
+            # not be able to act as a page of it. An SVG can carry script;
+            # `sandbox` with no allowances runs none, and `nosniff` stops a
+            # browser deciding a "png" is really HTML.
+            "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox",
+            "X-Content-Type-Options": "nosniff",
         },
     )

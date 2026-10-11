@@ -12,8 +12,9 @@ from .common import ORMModel, UtcDatetime
 class CreatePostRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     body: str = Field(default="", max_length=5000)
-    #: An optional document to attach to the post.
-    lessonPlanId: Optional[int] = None  # noqa: N815
+    #: An optional document to attach to the post. Its name is read from the
+    #: document itself; one sent here is ignored (see ``posts.create_post``).
+    lessonPlanId: Optional[int] = Field(default=None, ge=1)  # noqa: N815
     lessonPlanName: Optional[str] = None  # noqa: N815
 
 

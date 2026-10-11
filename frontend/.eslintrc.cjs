@@ -12,7 +12,9 @@ module.exports = {
   rules: {
     'react-refresh/only-export-components': [
       'warn',
-      { allowConstantExport: true },
+      // `useAuth` lives beside the provider whose context it reads — the usual
+      // shape for a context, and not one that breaks fast refresh.
+      { allowConstantExport: true, allowExportNames: ['useAuth'] },
     ],
     // A leading underscore is this codebase's existing marker for "bound on
     // purpose, not read" — placeholder positions in an array destructure,

@@ -14,7 +14,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.errors import Forbidden, NotFound
-from ..db.models import Post, PostComment, PostVote, User
+from ..db.models import LessonPlan, Post, PostComment, PostVote, User
 
 SortMode = Literal["latest", "top"]
 
@@ -64,6 +64,21 @@ async def create_post(
     lesson_plan_id: Optional[int],
     lesson_plan_name: Optional[str],
 ) -> Post:
+    # The attachment is resolved here, not taken on trust: the client used to
+    # send the id *and* the name to show for it, so a post could label any
+    # document — someone else's private one included — as anything at all.
+    # Only a published document can be attached, under its own name.
+    if lesson_plan_id is not None:
+        attached = (
+            await db.execute(
+                select(LessonPlan.name).where(LessonPlan.id == lesson_plan_id, LessonPlan.is_public.is_(True))
+            )
+        ).scalar_one_or_none()
+        if attached is None:
+            raise NotFound("Only a published document can be attached")
+        lesson_plan_name = attached
+    else:
+        lesson_plan_name = None
     post = Post(
         user_id=author.id,
         author_name=display_name(author),

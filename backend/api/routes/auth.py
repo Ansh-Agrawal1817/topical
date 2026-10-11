@@ -8,10 +8,11 @@ where it is. The session itself is a cookie the handler attaches; see
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Cookie, Response, status
+from fastapi import APIRouter, Cookie, Request, Response, status
 from typing import Annotated, Optional
 
 from ...auth import service as auth_service
+from ...core import ratelimit
 from ...auth.session import (
     SESSION_COOKIE,
     end_all_sessions,
@@ -49,6 +50,7 @@ def _session_user(user: User) -> SessionUser:
 @router.post("/auth/register", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     payload: RegisterRequest,
+    request: Request,
     response: Response,
     db: Db,
     user_agent: UserAgent,
@@ -58,6 +60,7 @@ async def register(
     Registering and then having to sign in is two forms for one intention, and
     the second one is where people gave up.
     """
+    ratelimit.registrations.check(f"ip:{ratelimit.client_ip(request)}")
     user = await auth_service.register(
         db,
         email=str(payload.email),
@@ -73,11 +76,18 @@ async def register(
 @router.post("/auth/login", response_model=SessionResponse)
 async def login(
     payload: LoginRequest,
+    request: Request,
     response: Response,
     db: Db,
     user_agent: UserAgent,
 ) -> SessionResponse:
+    account = f"email:{str(payload.email).strip().lower()}"
+    ratelimit.login_by_ip.check(f"ip:{ratelimit.client_ip(request)}")
+    ratelimit.login_attempts.check(account)
     user = await auth_service.authenticate(db, email=payload.email, password=payload.password)
+    # A success resets the account's count: the limit is on guessing, not on
+    # signing in from several browsers.
+    ratelimit.login_attempts.clear(account)
     await start_session(db, response, user, user_agent=user_agent)
     return SessionResponse(user=_session_user(user))
 
@@ -113,6 +123,7 @@ async def change_password(
     browser is signed straight back in so the person doing it is not logged out
     of the screen they are standing on.
     """
+    ratelimit.password_changes.check(f"user:{user.id}")
     await auth_service.change_password(
         db, user, current_password=payload.current_password, new_password=payload.new_password
     )

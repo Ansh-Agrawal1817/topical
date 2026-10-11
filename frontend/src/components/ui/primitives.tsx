@@ -382,7 +382,7 @@ export function IdentityBanner({
 export type DocType = 'mdx' | 'latex';
 
 /** Accent variables for a document type — one definition, used everywhere. */
-export function docTypeVars(type: DocType): React.CSSProperties {
+function docTypeVars(type: DocType): React.CSSProperties {
   return type === 'latex'
     ? ({
         '--doc-accent': 'var(--latex-500)',

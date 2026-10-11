@@ -15,7 +15,7 @@ import type { LessonPlanResponse } from '@/lib/api';
  * and its parts — which is what someone scanning their workspace is
  * actually looking for, more than the first sentence of the first section.
  */
-export function docShape(doc: LessonPlanResponse) {
+function docShape(doc: LessonPlanResponse) {
   const content = documentContent(doc.topics);
   const format: DocFormat = formatOf(doc.mainTopic);
   const outline = buildOutline(content, format);

@@ -18,13 +18,16 @@ from fastapi.middleware.gzip import GZipMiddleware
 # `core.config` reads (and loads) the environment at import, so it comes first.
 from .core.config import settings
 from .api import api_router
-from .core.errors import register_exception_handlers
+from .core.errors import error_response, register_exception_handlers
 from .core.logging import configure_logging
 from .db.session import dispose_engine, is_configured, warm_pool
 from .realtime import realtime_router
 from .static import mount_frontend
 
 logger = logging.getLogger(__name__)
+
+#: The largest request body accepted: an image upload (5MB) plus form overhead.
+MAX_BODY_BYTES = 8 * 1024 * 1024
 
 
 @asynccontextmanager
@@ -74,6 +77,28 @@ def create_app() -> FastAPI:
     # JavaScript bundles. Both went out uncompressed; prose and minified code
     # compress four- to six-fold. Websocket frames are not touched.
     app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
+
+    @app.middleware("http")
+    async def security_headers(request, call_next):
+        """Headers every response carries.
+
+        ``nosniff`` keeps a browser from reading a response as a type it was
+        not sent as; ``DENY`` keeps the app out of other sites' frames, where a
+        hidden one could be clicked through (nothing legitimate frames it);
+        the referrer policy stops full document URLs leaking to the sites a
+        document links to.
+        """
+        # Bodies are bounded: the largest legitimate one is a 5MB image
+        # upload, and nothing else stopped a client sending gigabytes for the
+        # server to buffer and parse.
+        length = request.headers.get("content-length")
+        if length and length.isdigit() and int(length) > MAX_BODY_BYTES:
+            return error_response("Request too large", 413)
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        return response
 
     register_exception_handlers(app)
 

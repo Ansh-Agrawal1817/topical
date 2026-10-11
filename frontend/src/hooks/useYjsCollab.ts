@@ -245,6 +245,7 @@ export function useYjsCollab(
     awareness.on('update', awarenessUpdateHandler);
 
     // WebSocket connection logic
+    let failures = 0;
     function connect() {
       if (cleanedUp.current) return;
 
@@ -255,6 +256,7 @@ export function useYjsCollab(
       currentWs = ws;
 
       ws.onopen = () => {
+        failures = 0;
         setConnected(true);
         const encoder = encoding.createEncoder();
         encoding.writeVarUint(encoder, MSG_AWARENESS);
@@ -292,7 +294,13 @@ export function useYjsCollab(
         setConnected(false);
         currentWs = null;
         if (!cleanedUp.current) {
-          reconnectTimer.current = setTimeout(connect, 2000);
+          // Backing off: a socket the server refuses (access removed while the
+          // document was open) fails its handshake exactly like a dropped
+          // network, and a flat 2s retry hammered it for as long as the tab
+          // stayed open. 2s, 4s, 8s … capped at 30s; reset by a good open.
+          const delay = Math.min(30_000, 2000 * 2 ** failures);
+          failures += 1;
+          reconnectTimer.current = setTimeout(connect, delay);
         }
       };
 

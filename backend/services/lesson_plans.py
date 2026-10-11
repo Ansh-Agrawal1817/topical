@@ -11,7 +11,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal, Optional, Sequence
 
-from sqlalchemy import ColumnElement, delete, or_, select, text, update
+from sqlalchemy import ColumnElement, case, delete, or_, select, text, type_coerce, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.errors import NotFound
@@ -195,11 +196,25 @@ async def replace(
     it used to be three round trips — a SELECT to check access, the UPDATE, and
     a SELECT to read the row back — each one 80–100ms to the database.
     """
+    values = _values(payload, creating=False)
+    # Who may read it, and who else may edit it, are the owner's to decide.
+    # A co-author could write both — publish someone else's document, or take
+    # people off it — because the access check was "may write" for every
+    # column. Their saves still carry the fields (the client sends what it
+    # holds); the CASE keeps the stored value unless the writer is the owner,
+    # which also stops a co-author's stale copy undoing the owner's change.
+    is_owner = LessonPlan.user_id == user_id
+    if "co_authors" in values:
+        values["co_authors"] = case(
+            (is_owner, type_coerce(values["co_authors"], JSONB)), else_=LessonPlan.co_authors
+        )
+    if "is_public" in values:
+        values["is_public"] = case((is_owner, values["is_public"]), else_=LessonPlan.is_public)
     plan = (
         await db.execute(
             update(LessonPlan)
             .where(LessonPlan.id == plan_id, writable_by(user_id))
-            .values(**_values(payload, creating=False), updated_at=datetime.utcnow())
+            .values(**values, updated_at=datetime.utcnow())
             .returning(LessonPlan)
             .execution_options(synchronize_session=False, populate_existing=True)
         )

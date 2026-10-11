@@ -18,12 +18,15 @@ passed the placeholder to the model as if it were research.
 """
 
 import asyncio
+import ipaddress
 import json
 import logging
 import re
+import socket
 import ssl
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 from typing import Dict, List, Optional, Tuple
 
@@ -35,6 +38,7 @@ MAX_PAGE_CHARS = 15_000
 MIN_USEFUL_CHARS = 200
 
 _FETCH_TIMEOUT_SECONDS = 30
+_MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 _SUMMARY_TIMEOUT_SECONDS = 15
 
 _BROWSER_HEADERS = {
@@ -45,6 +49,50 @@ _BROWSER_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
 }
+
+
+# ---------------------------------------------------------------------------
+# Which addresses may be fetched
+# ---------------------------------------------------------------------------
+def _is_public_host(host: str) -> bool:
+    """Whether every address ``host`` resolves to is on the public internet."""
+    if not host:
+        return False
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return False
+    for info in infos:
+        address = ipaddress.ip_address(info[4][0].split("%", 1)[0])
+        if not address.is_global or address.is_multicast:
+            return False
+    return bool(infos)
+
+
+def is_fetchable(url: str) -> bool:
+    """Whether the server may fetch ``url`` on a writer's behalf.
+
+    The URLs here come from the writer — pasted into Context — and the server
+    fetches them from inside its own network. Without this, any signed-in user
+    could point it at ``localhost``, the hosting provider's private network or
+    its metadata endpoint (``169.254.169.254``) and read the answer back in a
+    generated section. Only public http(s) addresses are allowed, checked
+    after DNS resolution, and again for every redirect.
+    """
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return False
+    return parts.scheme in ("http", "https") and _is_public_host(parts.hostname or "")
+
+
+class _PublicRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect only to another public address."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not is_fetchable(newurl):
+            raise urllib.error.URLError(f"refused redirect to a non-public address: {newurl}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +125,11 @@ async def crawl_pages(urls: List[str]) -> List[Optional[str]]:
         if hit and now - hit[0] < _PAGE_TTL_SECONDS:
             texts[url] = hit[1]
     missing = [url for url in dict.fromkeys(urls) if url not in texts]
+    refused = [url for url in missing if not await asyncio.to_thread(is_fetchable, url)]
+    for url in refused:
+        logger.warning("refused to fetch a non-public address: %s", url)
+        texts[url] = None
+    missing = [url for url in missing if url not in refused]
     if missing:
         for url, text in zip(missing, await _crawl_many(missing)):
             texts[url] = text
@@ -103,7 +156,15 @@ async def _crawl_many(urls: List[str]) -> List[Optional[str]]:
         for i, result in enumerate(results):
             if isinstance(result, BaseException):
                 logger.warning("crawl4ai failed for %s (%s); falling back", urls[i], result)
-            elif result and result.markdown:
+                continue
+            # A browser follows redirects on its own; what it landed on is
+            # held to the same rule as what it was asked for.
+            landed = getattr(result, "redirected_url", None)
+            if landed and landed != urls[i] and not await asyncio.to_thread(is_fetchable, landed):
+                logger.warning("discarding %s: it redirected to a non-public address", urls[i])
+                rendered[i] = ""
+                continue
+            if result and result.markdown:
                 rendered[i] = result.markdown[:MAX_PAGE_CHARS]
     except (ImportError, TypeError):
         # crawl4ai unavailable (e.g. Python < 3.10) — degrade, don't fail.
@@ -112,6 +173,7 @@ async def _crawl_many(urls: List[str]) -> List[Optional[str]]:
         logger.warning("crawl4ai failed (%s); falling back to a plain fetch", exc)
 
     misses = [i for i, text in enumerate(rendered) if text is None]
+    rendered = [text or None for text in rendered]
     fetched = await asyncio.gather(*(asyncio.to_thread(_fetch_text, urls[i]) for i in misses))
     for i, text in zip(misses, fetched):
         rendered[i] = text
@@ -143,8 +205,11 @@ def _read(url: str, headers: dict, timeout: int, permissive_tls: bool = False) -
         context.verify_mode = ssl.CERT_NONE
 
     request = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
-        return response.read().decode("utf-8", errors="ignore")
+    opener = urllib.request.build_opener(_PublicRedirects, urllib.request.HTTPSHandler(context=context))
+    with opener.open(request, timeout=timeout) as response:
+        # Capped: a page is read for a few thousand characters of prose, and
+        # an endless or enormous response must not be held in memory whole.
+        return response.read(_MAX_RESPONSE_BYTES).decode("utf-8", errors="ignore")
 
 
 def _extract_text(html: str) -> Optional[str]:

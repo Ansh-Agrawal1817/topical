@@ -6,6 +6,7 @@ about the profile hanging off it.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import List, Optional, Sequence
 
@@ -126,7 +127,13 @@ async def update_profile(
         changed = True
 
     if avatar_url is not _ABSENT:
-        if avatar_url is not None and not isinstance(avatar_url, str):
+        # An uploaded image, or a plain web address — never a script or data
+        # URL, since the value is rendered for everyone who views the profile.
+        if avatar_url is not None and (
+            not isinstance(avatar_url, str)
+            or len(avatar_url) > 2048
+            or not re.match(r"^(https?://|/api/files/)[^\s\"'<>]+$", avatar_url)
+        ):
             raise AppError("Invalid avatar URL", 400)
         user.avatar_url = avatar_url
         changed = True

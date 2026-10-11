@@ -37,16 +37,16 @@ class LessonPlanInput(BaseModel):
     from the body.
     """
 
-    name: str = Field(min_length=1, description="Lesson plan name must not be empty")
-    mainTopic: str = Field(min_length=1, description="Main topic must not be empty")  # noqa: N815
-    topics: List[SavedLessonTopic] = Field(default_factory=list)
+    name: str = Field(min_length=1, max_length=300, description="Lesson plan name must not be empty")
+    mainTopic: str = Field(min_length=1, max_length=400, description="Main topic must not be empty")  # noqa: N815
+    topics: List[SavedLessonTopic] = Field(default_factory=list, max_length=2000)
     #: Tri-state, for the same reason ``isPublic`` below is, and it was missed
     #: when that one was fixed. A PUT writes every column it is handed, so a
     #: caller that said nothing about co-authors had an empty list written over
     #: them: the publish toggle on the projects page sends name, topics and
     #: ``isPublic`` and nothing else, so publishing a document deleted every
     #: collaborator on it. ``None`` means "leave them as they are".
-    coAuthors: Optional[List[str]] = None  # noqa: N815
+    coAuthors: Optional[List[str]] = Field(default=None, max_length=50)  # noqa: N815
     #: Tri-state on purpose. ``False`` was the default, and because a PUT
     #: writes every column, any client that did not send the field silently
     #: unpublished the document — which the editor never sent, so autosaving a

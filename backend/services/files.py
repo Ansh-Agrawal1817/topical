@@ -51,6 +51,28 @@ def uploads_dir() -> Path:
     return settings.uploads_dir
 
 
+def _looks_like(extension: str, content: bytes) -> bool:
+    """Whether the bytes are the format the upload claimed.
+
+    The MIME type is whatever the browser — or anyone with curl — says it is,
+    so it decides nothing on its own: an HTML page labelled image/png was
+    stored and served back as a "png".
+    """
+    head = content[:512]
+    if extension == "png":
+        return head.startswith(b"\x89PNG\r\n\x1a\n")
+    if extension == "jpg":
+        return head.startswith(b"\xff\xd8\xff")
+    if extension == "gif":
+        return head.startswith((b"GIF87a", b"GIF89a"))
+    if extension == "webp":
+        return head[:4] == b"RIFF" and head[8:12] == b"WEBP"
+    if extension == "svg":
+        text = head.decode("utf-8", errors="ignore").lstrip("\ufeff \t\r\n").lower()
+        return text.startswith(("<svg", "<?xml", "<!--", "<!doctype svg"))
+    return False
+
+
 async def store(content: bytes, content_type: str) -> tuple[str, int]:
     """Write an uploaded image and return its stored name and size."""
     extension = IMAGE_TYPES.get((content_type or "").lower())
@@ -59,6 +81,9 @@ async def store(content: bytes, content_type: str) -> tuple[str, int]:
 
     if len(content) > MAX_SIZE_BYTES:
         raise AppError(f"File too large. Maximum size is {MAX_SIZE_LABEL}", 400)
+
+    if not _looks_like(extension, content):
+        raise AppError(f"That file is not a valid {extension.upper()} image", 400)
 
     # A random name, not the uploaded one: the client's filename is
     # attacker-controlled and would otherwise reach a path join.
