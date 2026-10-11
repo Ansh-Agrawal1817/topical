@@ -5,7 +5,7 @@ they describe the HTTP surface: the service layer underneath takes plain
 arguments and knows nothing about FastAPI.
 """
 
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -115,3 +115,20 @@ class RefineOutlineRequest(BaseModel):
     subject: Optional[str] = None
     instruction: Optional[str] = None
     format: str = "mdx"
+
+
+class ReviewRequest(BaseModel):
+    """One section, for an AI collaborator to review."""
+
+    format: str = "mdx"
+    title: Optional[str] = Field(default=None, max_length=300)
+    #: The headings it sits under, outermost first, ending with its own.
+    section: str = Field(max_length=600)
+    #: The section's own text — never the whole document.
+    text: str = Field(min_length=1, max_length=20_000)
+    #: The document's headings, indented by depth, for scope and terms.
+    outline: Optional[str] = Field(default=None, max_length=6_000)
+    #: How this collaborator was told to review ("check the maths").
+    instructions: Optional[str] = Field(default=None, max_length=2_000)
+    #: Passages already suggested or dismissed, so they are not raised again.
+    seen: List[Annotated[str, Field(max_length=600)]] = Field(default_factory=list, max_length=40)

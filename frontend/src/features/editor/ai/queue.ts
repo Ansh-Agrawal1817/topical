@@ -41,9 +41,21 @@ export interface Job {
   finishedAt?: number;
 }
 
+/**
+ * What the asker hears about each attempt. Called on every run, retries
+ * included — the promise `add` returns settles once, so a panel that only
+ * listened to it never heard about a retry it did not start.
+ */
+export interface JobEvents {
+  start?: () => void;
+  done?: () => void;
+  fail?: (error: unknown) => void;
+}
+
 interface Entry {
   job: Job;
   run: (signal: AbortSignal) => Promise<void>;
+  on?: JobEvents;
   controller?: AbortController;
   timer?: ReturnType<typeof setTimeout>;
 }
@@ -64,7 +76,11 @@ export interface AiQueue {
   subscribe: (listener: () => void) => () => void;
   snapshot: () => Job[];
   /** Add a job; resolves when it finishes, rejects if it fails or is cancelled. */
-  add: (spec: { kind: JobKind; label: string; key?: number; batch?: string; run: (signal: AbortSignal) => Promise<void> }) => Promise<void>;
+  add: (spec: {
+    kind: JobKind; label: string; key?: number; batch?: string;
+    run: (signal: AbortSignal) => Promise<void>;
+    on?: JobEvents;
+  }) => Promise<void>;
   cancel: (id: string) => void;
   /** Cancel every job not yet finished — of one kind, or all. */
   cancelAll: (kind?: JobKind) => void;
@@ -72,6 +88,8 @@ export interface AiQueue {
   retry: (id: string) => void;
   /** Skip the wait on a job that is backing off. */
   retryNow: (id: string) => void;
+  /** Take one job off the list, cancelling it first if it has not finished. */
+  remove: (id: string) => void;
   clearFinished: () => void;
   dispose: () => void;
 }
@@ -107,12 +125,25 @@ export function createAiQueue(): AiQueue {
         const controller = new AbortController();
         entry.controller = controller;
         update(entry, { status: 'running', attempt: entry.job.attempt + 1, retryAt: undefined });
+        entry.on?.start?.();
+        // A cancel frees the line at once. Most runs cannot be interrupted
+        // mid-request, and waiting for one held every job behind it — and a
+        // retry pressed in the meantime never started, because the pump was
+        // still parked on the cancelled run.
+        const aborted = new Promise<never>((_, reject) => {
+          controller.signal.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')), { once: true });
+        });
         try {
-          await entry.run(controller.signal);
+          await Promise.race([entry.run(controller.signal), aborted]);
+          if (controller.signal.aborted || entry.job.status === 'cancelled') continue;
           update(entry, { status: 'done', finishedAt: Date.now(), reason: undefined });
+          entry.on?.done?.();
           settle.get(entry.job.id)?.resolve();
         } catch (error) {
-          if (entry.job.status === 'cancelled' || isAbort(error)) continue;
+          if (entry.job.status === 'cancelled' || isAbort(error)) {
+            entry.on?.fail?.(new JobCancelled());
+            continue;
+          }
           if (isAiKeyDeclined(error)) {
             // Asked for a key and the writer closed the dialog: everything
             // waiting would ask again, so the whole line stands down.
@@ -134,6 +165,7 @@ export function createAiQueue(): AiQueue {
             continue;
           }
           update(entry, { status: 'failed', finishedAt: Date.now(), reason });
+          entry.on?.fail?.(error);
           settle.get(entry.job.id)?.reject(error);
         }
       }
@@ -145,8 +177,12 @@ export function createAiQueue(): AiQueue {
   const stop = (entry: Entry) => {
     if (['done', 'failed', 'cancelled'].includes(entry.job.status)) return;
     if (entry.timer) clearTimeout(entry.timer);
-    entry.controller?.abort();
+    const running = entry.job.status === 'running';
     entry.job = { ...entry.job, status: 'cancelled', finishedAt: Date.now(), retryAt: undefined };
+    entry.controller?.abort();
+    // A running job hears about its cancel from the pump; one still waiting
+    // has no attempt in flight to report it, so it is told here.
+    if (!running) entry.on?.fail?.(new JobCancelled());
     settle.get(entry.job.id)?.reject(new JobCancelled());
   };
   const cancelEverything = () => { entries.forEach(stop); publish(); };
@@ -157,12 +193,12 @@ export function createAiQueue(): AiQueue {
       return () => listeners.delete(listener);
     },
     snapshot: () => jobs,
-    add({ kind, label, key, batch, run }) {
+    add({ kind, label, key, batch, run, on }) {
       const id = `job-${++seq}`;
       const promise = new Promise<void>((resolve, reject) => settle.set(id, { resolve, reject }));
       // Nobody has to handle a cancellation they did not ask about.
       promise.catch(() => {});
-      entries.push({ job: { id, kind, label, key, batch, status: 'queued', attempt: 0, queuedAt: Date.now() }, run });
+      entries.push({ job: { id, kind, label, key, batch, status: 'queued', attempt: 0, queuedAt: Date.now() }, run, on });
       publish();
       void pump();
       return promise;
@@ -180,7 +216,8 @@ export function createAiQueue(): AiQueue {
       if (!entry || !['failed', 'cancelled'].includes(entry.job.status)) return;
       const promise = new Promise<void>((resolve, reject) => settle.set(id, { resolve, reject }));
       promise.catch(() => {});
-      update(entry, { status: 'queued', reason: undefined, finishedAt: undefined, attempt: 0 });
+      entry.controller = undefined;
+      update(entry, { status: 'queued', reason: undefined, finishedAt: undefined, attempt: 0, queuedAt: Date.now() });
       void pump();
     },
     retryNow(id) {
@@ -188,6 +225,15 @@ export function createAiQueue(): AiQueue {
       if (!entry || entry.job.status !== 'retrying') return;
       if (entry.timer) clearTimeout(entry.timer);
       update(entry, { status: 'queued', retryAt: undefined });
+      void pump();
+    },
+    remove(id) {
+      const at = entries.findIndex(e => e.job.id === id);
+      if (at < 0) return;
+      stop(entries[at]);
+      entries.splice(at, 1);
+      settle.delete(id);
+      publish();
       void pump();
     },
     clearFinished() {

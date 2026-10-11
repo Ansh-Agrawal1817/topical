@@ -59,7 +59,12 @@ interface Props {
   onInsertAfter: (at: number, text: string) => void;
   /** Bumped by ⌘J, to put the cursor in the instruction field. */
   focusSignal: number;
+  /** An action asked for from elsewhere (the slash menu), run once per `at`. */
+  runRequest?: { action: string; at: number };
 }
+
+/** The last slash-menu request run, by its timestamp. */
+let lastRunAt = 0;
 
 /**
  * Refine what is selected, from the AI tab.
@@ -71,7 +76,7 @@ interface Props {
  * the AI queue, so a rate limit retries instead of failing.
  */
 export function RefinePanel({
-  selection, content, format, title, outline, queue, onReplace, onInsertAfter, focusSignal,
+  selection, content, format, title, outline, queue, onReplace, onInsertAfter, focusSignal, runRequest,
 }: Props) {
   const [instruction, setInstruction] = useState('');
   const [phase, setPhase] = useState<'idle' | 'running' | 'result'>('idle');
@@ -116,7 +121,7 @@ export function RefinePanel({
     setPhase('running');
     const preview = next.hasSelection ? `“${next.passage.trim().split(/\s+/).slice(0, 6).join(' ')}…”` : 'at the cursor';
     let text = '';
-    const job = queue.add({
+    queue.add({
       kind: 'refine',
       label: `${chosen.id === 'custom' ? 'Instruction' : chosen.label} · ${preview}`,
       run: async () => {
@@ -136,18 +141,33 @@ export function RefinePanel({
         })).trim();
         if (!text) throw new Error('The model returned nothing. Try again.');
       },
-    });
-    job.then(() => {
-      setResult(text);
-      setView('changes');
-      setPhase('result');
-    }).catch(error => {
-      setPhase('idle');
-      if (!(error instanceof JobCancelled)) toast.error('The edit failed — see the queue below for why.');
+      // Per attempt, so a retry from the queue lands here as well.
+      on: {
+        start: () => { setTarget(next); setAction(chosen); setPhase('running'); },
+        done: () => {
+          setResult(text);
+          setView('changes');
+          setPhase('result');
+        },
+        fail: error => {
+          setPhase('idle');
+          if (!(error instanceof JobCancelled)) toast.error('The edit failed — retry it from the queue below.');
+        },
+      },
     });
     const all = queue.snapshot();
     jobRef.current = all[all.length - 1]?.id ?? null;
   };
+
+  // An action sent from the slash menu runs once. Remembered outside the
+  // component: switching tabs remounts this panel with the same request,
+  // which must not run it a second time.
+  useEffect(() => {
+    if (!runRequest || runRequest.at <= lastRunAt) return;
+    lastRunAt = runRequest.at;
+    const chosen = AI_ACTIONS.find(a => a.id === runRequest.action);
+    if (chosen) run(chosen);
+  });
 
   const runInstruction = () => {
     const text = instruction.trim();

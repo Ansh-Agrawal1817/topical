@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Wifi, WifiOff } from 'lucide-react';
+import { History, Sparkles, Wifi, WifiOff } from 'lucide-react';
+import { Spinner } from '@/components/ui';
 import type { DocFormat } from '@/lib/types';
 import type { SaveState } from '../hooks/useDocument';
 import type { DocStats } from '../lib/stats';
@@ -16,6 +17,12 @@ interface Props {
   connected: boolean;
   peerCount: number;
   format: DocFormat;
+  /** Open the version history. Absent where there is none to show (reading). */
+  onHistory?: () => void;
+  /** Open AI suggestions waiting, and whether a reviewer is reading right now. */
+  suggestions?: number;
+  reviewing?: boolean;
+  onSuggestions?: () => void;
 }
 
 /*
@@ -46,7 +53,7 @@ function useMinuteClock(active: boolean): number {
 
 /** Ambient feedback while writing: length, position, save and session state. */
 export function StatusBar({
-  editing, saveState, lastSavedAt, stats, line, column, selectedWords, connected, peerCount, format,
+  editing, saveState, lastSavedAt, stats, line, column, selectedWords, connected, peerCount, format, onHistory, suggestions = 0, reviewing, onSuggestions,
 }: Props) {
   const now = useMinuteClock(editing && saveState === 'saved' && lastSavedAt !== null);
   return (
@@ -59,11 +66,15 @@ export function StatusBar({
       {/* Nothing is being saved while reading, and nothing is unsaved — a
           bar that says "all changes saved" to someone who cannot make changes
           is reporting on a thing that is not happening. */}
+      {/* The save state is also the way into the history: "saved 3 min ago"
+          is the question history answers the long form of. */}
       {editing && (
-        <span className="editor-status-item" role="status" aria-live="polite" data-state={saveState}>
+        <button type="button" className="editor-status-item editor-status-button" onClick={onHistory}
+          disabled={!onHistory} title="Version history — see, name and restore snapshots" aria-label="Open version history">
           <span className="editor-status-dot" data-state={saveState} aria-hidden="true" />
-          {savedLabel(saveState, lastSavedAt, now)}
-        </span>
+          <span role="status" aria-live="polite" data-state={saveState}>{savedLabel(saveState, lastSavedAt, now)}</span>
+          <History className="h-3 w-3 opacity-70" aria-hidden="true" />
+        </button>
       )}
       {/* `--aux` marks the readings that are nice to have rather than needed.
           A narrow window drops them (see editor.css) so the two that matter —
@@ -81,10 +92,20 @@ export function StatusBar({
       <span className="editor-status-item editor-status-item--aux" aria-hidden="true">{stats.chars.toLocaleString()} characters</span>
       <span className="editor-status-item editor-status-item--aux" aria-hidden="true">{stats.readMinutes} min read</span>
 
+      {/* The AI collaborators: whether one is reading, and what they suggest. */}
+      {editing && onSuggestions && (
+        <button type="button" className="editor-status-item editor-status-button ml-auto" onClick={onSuggestions}
+          data-count={suggestions || undefined}
+          title={suggestions ? 'Open the AI suggestions' : 'AI collaborators are watching — nothing to change'}>
+          {reviewing ? <Spinner size="2xs" tone="accent" /> : <Sparkles className="h-3 w-3" aria-hidden="true" />}
+          {suggestions ? `${suggestions} suggestion${suggestions === 1 ? '' : 's'}` : reviewing ? 'Reviewing…' : 'No suggestions'}
+        </button>
+      )}
+
       {/* Reading does not join the collaboration session at all, so there is
           no connection to report on. */}
       {editing && (
-        <span className="editor-status-item ml-auto">
+        <span className={`editor-status-item${onSuggestions ? '' : ' ml-auto'}`}>
           {connected
             ? <><Wifi className="h-3 w-3" style={{ color: 'var(--status-success)' }} />
                 {peerCount > 0 ? `${peerCount + 1} editing` : 'Live'}</>

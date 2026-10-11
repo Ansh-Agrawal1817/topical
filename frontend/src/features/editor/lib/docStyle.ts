@@ -8,7 +8,7 @@ import type { PdfAccent, PdfFace, PdfOptions, PdfTheme } from './pdfExport';
  * and the read view (`styles/doc-style.css`), so everything inside — the live
  * editor, rendered maths, tables, code — follows without each part knowing a
  * theme exists. "Paper" is the app's own look and follows its light/dark
- * setting; the others are fixed palettes.
+ * setting; the others are fixed palettes. New documents open in Sepia.
  *
  * Remembered per document in this browser, and carried into Export PDF as
  * its starting options.
@@ -24,7 +24,7 @@ export interface DocStyle {
   font: DocFont;
 }
 
-export const DEFAULT_DOC_STYLE: DocStyle = { theme: 'paper', accent: 'terracotta', font: 'serif' };
+export const DEFAULT_DOC_STYLE: DocStyle = { theme: 'sepia', accent: 'terracotta', font: 'serif' };
 
 export const DOC_THEMES: { value: DocTheme; label: string; swatch: string; ink: string }[] = [
   { value: 'paper', label: 'Paper', swatch: 'var(--bg)', ink: 'var(--ink)' },

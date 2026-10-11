@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import { ArrowRight, Trash2 } from 'lucide-react';
 import { Collaborators } from '@/components/Collaborators';
+import { ProviderMark } from '@/components/ProviderTile';
+import type { AiProvider } from '@/lib/aiCredentials';
 import { Button, IconButton } from '@/components/ui';
 import { buildOutline } from '@/features/editor/lib/outline';
 import { documentContent } from '@/lib/documents';
@@ -63,6 +65,17 @@ export function WorkspaceCard({ doc, isAuthor, layout, onOpen, onDelete, childre
   const people = doc.coAuthorUsernames && doc.coAuthorUsernames.length > 0 && (
     <Collaborators authorUsername={doc.authorUsername ?? null} coAuthorUsernames={doc.coAuthorUsernames} />
   );
+  // The AI collaborators reviewing it, beside the people writing it.
+  const ais = doc.aiCollaborators && doc.aiCollaborators.length > 0 && (
+    <span className="ws-ais" title={`AI collaborators: ${doc.aiCollaborators.map(ai => ai.name).join(', ')}`}>
+      {doc.aiCollaborators.slice(0, 3).map(ai => (
+        <span key={ai.id} className="ws-ai" data-off={!ai.enabled || undefined}>
+          <ProviderMark provider={ai.provider as AiProvider} size="sm" />
+        </span>
+      ))}
+      {doc.aiCollaborators.length > 3 && <span className="ws-ai ws-ai--more">+{doc.aiCollaborators.length - 3}</span>}
+    </span>
+  );
   const remove = isAuthor && (
     <IconButton size="sm" tone="danger" revealOnHover onClick={() => onDelete(doc.id)} aria-label={`Delete ${doc.name}`} title="Delete">
       <Trash2 className="h-3.5 w-3.5" />
@@ -84,6 +97,7 @@ export function WorkspaceCard({ doc, isAuthor, layout, onOpen, onDelete, childre
         <span className="ws-row-side">
           {children}
           {people}
+          {ais}
           {remove}
         </span>
         <button type="button" className="ws-hit" tabIndex={-1} aria-hidden="true" onClick={() => onOpen(doc)} />
@@ -139,6 +153,7 @@ export function WorkspaceCard({ doc, isAuthor, layout, onOpen, onDelete, childre
         <div className="ws-card-foot">
           {children}
           {people}
+          {ais}
         </div>
       </div>
       <button type="button" className="ws-hit" tabIndex={-1} aria-hidden="true" onClick={() => onOpen(doc)} />

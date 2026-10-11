@@ -84,7 +84,7 @@ export function useSectionWriter({
     label: node.label,
     key: node.offset,
     batch,
-    run: async () => {
+    run: async signal => {
       const { format, projectName, onInsertSection, onFocusSection, styleSample, readContent, readUrls } = latest.current;
       const content = readContent();
       // The document has moved since this was queued: find the row again.
@@ -118,6 +118,9 @@ export function useSectionWriter({
         leadIn: content.slice(Math.max(0, here.offset - LEAD_IN_CHARS), here.offset).trim(),
         labels: format === 'latex' ? labelDigest(collectLabels(content)) : undefined,
       });
+      // Cancelled while the model was answering: the queue has moved on, and
+      // the answer must not land in a document that stopped asking for it.
+      if (signal.aborted) return;
       // The heading is always already on the page, so this replaces what sits
       // under it rather than adding a second copy.
       onInsertSection(text, here.label, true, here.offset);

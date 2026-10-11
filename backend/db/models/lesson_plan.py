@@ -29,6 +29,12 @@ class LessonPlan(Base):
     co_authors: Mapped[Optional[list[str]]] = mapped_column(
         JSONB, server_default=text("'[]'::jsonb"), default=list
     )
+    #: AI models added to the document as collaborators — which model, how it
+    #: should review, how often. Never a key: keys stay in the browser of the
+    #: person who added it, and only that browser can run it.
+    ai_collaborators: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb"), default=list
+    )
     is_public: Mapped[Optional[bool]] = mapped_column(Boolean, server_default=text("false"), default=False)
     created_at: Mapped[Optional[datetime]] = created_at_column()
     updated_at: Mapped[Optional[datetime]] = updated_at_column()

@@ -2,14 +2,14 @@
 
 import type { DocFormat } from '@/lib/types';
 
-const EXTENSIONS: Record<DocFormat, string> = { mdx: 'md', latex: 'tex' };
+export const SOURCE_EXTENSION: Record<DocFormat, string> = { mdx: 'mdx', latex: 'tex' };
 
 function fileNameFor(name: string, format: DocFormat): string {
   const slug = name.trim().toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-') || 'document';
-  return `${slug}.${EXTENSIONS[format]}`;
+  return `${slug}.${SOURCE_EXTENSION[format]}`;
 }
 
-/** Download the source as a .md/.tex file. */
+/** Download the source as a .mdx/.tex file. */
 export function downloadSource(name: string, content: string, format: DocFormat) {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);

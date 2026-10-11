@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .common import ORMModel, UtcDatetime
 
@@ -28,6 +28,27 @@ class SavedLessonTopic(BaseModel):
     isSubtopic: bool = False  # noqa: N815
     parentTopic: Optional[str] = None  # noqa: N815
     mainTopic: Optional[str] = None  # noqa: N815
+
+
+class AiCollaborator(BaseModel):
+    """An AI model on a document as a reviewer — its settings, never its key.
+
+    The key stays in the browser of the person who added it; that browser is
+    the only one that can run it, and everyone else sees it on the document.
+    """
+
+    id: str = Field(min_length=1, max_length=40)
+    #: What it is called on the document: "Claude", "Fact-checker".
+    name: str = Field(min_length=1, max_length=60)
+    provider: str = Field(min_length=1, max_length=40)
+    model: str = Field(min_length=1, max_length=160)
+    #: How it should review: "Check the maths", "Keep the tone formal".
+    instructions: str = Field(default="", max_length=2000)
+    #: How often it looks at the section last touched.
+    intervalSeconds: int = Field(default=10, ge=5, le=600)  # noqa: N815
+    enabled: bool = True
+    #: Who added it — whose browser holds the key that runs it.
+    addedBy: Optional[str] = Field(default=None, max_length=64)  # noqa: N815
 
 
 class LessonPlanInput(BaseModel):
@@ -53,6 +74,8 @@ class LessonPlanInput(BaseModel):
     #: published document (or adding a co-author) took it off the community
     #: library on the next keystroke. ``None`` means "leave it as it is".
     isPublic: Optional[bool] = None  # noqa: N815
+    #: Tri-state, like ``coAuthors``: ``None`` leaves them as they are. Owner only.
+    aiCollaborators: Optional[List[AiCollaborator]] = Field(default=None, max_length=8)  # noqa: N815
 
 
 class LessonPlanOut(ORMModel):
@@ -65,6 +88,13 @@ class LessonPlanOut(ORMModel):
     topics: List[SavedLessonTopic] = Field(default_factory=list)
     coAuthors: List[str] = Field(default_factory=list, validation_alias="co_authors")  # noqa: N815
     isPublic: bool = Field(default=False, validation_alias="is_public")  # noqa: N815
+    aiCollaborators: List[AiCollaborator] = Field(default_factory=list, validation_alias="ai_collaborators")  # noqa: N815
+
+    @field_validator("aiCollaborators", mode="before")
+    @classmethod
+    def _none_is_empty(cls, value):
+        # Rows written before the column existed read back as null.
+        return value or []
     createdAt: Optional[UtcDatetime] = Field(default=None, validation_alias="created_at")  # noqa: N815
     updatedAt: Optional[UtcDatetime] = Field(default=None, validation_alias="updated_at")  # noqa: N815
 

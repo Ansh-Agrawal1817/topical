@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useCompactEditor } from '@/hooks/useMediaQuery';
 import type { LessonPlanResponse } from '@/lib/api';
 import { documentShareUrl } from '@/lib/documentUrl';
-import { uploadFile } from '@/lib/api';
+import { takeVersion, uploadFile } from '@/lib/api';
 import { useDocument } from './hooks/useDocument';
 import { useFindReplace } from './hooks/useFindReplace';
 import { EditorHeader } from './components/EditorHeader';
@@ -14,14 +14,17 @@ import { OutlineRail } from './components/OutlineRail';
 import { StatusBar } from './components/StatusBar';
 import { FindBar } from './components/FindBar';
 import { SlashMenu, type SlashCommand } from './components/SlashMenu';
-import { PenLine, Sparkles } from 'lucide-react';
+import { ArrowRight, Globe, ImageUp, ListTree, PenLine, Sparkles, Wand2 } from 'lucide-react';
 import { AiPanel, type AiFocus, type AiRequest } from './ai/AiPanel';
+import { useAiReviewers, type Suggestion, type Touch } from './ai/reviewers';
 import { docStyleAttrs, pdfFromDocStyle, useDocStyle } from './lib/docStyle';
 import { useTheme } from '@/lib/theme';
 import { createAiQueue } from './ai/queue';
 import { useContextShelf } from './ai/shelf';
 import { CoAuthorsDialog } from './components/CoAuthorsDialog';
 import { ImageDialog } from './components/ImageDialog';
+import { HistoryDialog } from './components/HistoryDialog';
+import { SourcesPanel } from './components/SourcesPanel';
 import { LiveEditor, type LiveEditorHandle, type SurfaceMode } from './live/LiveEditor';
 import { activeNode, buildOutline, type OutlineNode } from './lib/outline';
 import { indexOutline, sectionWords, subtreeSpan } from './lib/tree';
@@ -73,6 +76,9 @@ const loadPreview = () => import('./components/PreviewPane');
 const PreviewPane = lazy(() => loadPreview().then(m => ({ default: m.PreviewPane })));
 /** What a pane shows for the moment the preview is still arriving. */
 const PREVIEW_PENDING = <div className="doc-preview" aria-busy="true" />;
+
+/** At most one automatic snapshot per this much saved work. */
+const AUTO_SNAPSHOT_MS = 10 * 60_000;
 
 /**
  * The document screen — reading and writing are two modes of it, not two
@@ -129,10 +135,12 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
   shelfUrlsRef.current = shelf.urls;
   /** The AI panel as a drawer, in the compact layout (wide, it is `options.ai`). */
   const [aiDrawer, setAiDrawer] = useState(false);
+  const [sourcesDrawer, setSourcesDrawer] = useState(false);
   const [aiFocus, setAiFocus] = useState(0);
   const [aiRequest, setAiRequest] = useState<AiRequest | undefined>(undefined);
   const [showShare, setShowShare] = useState(false);
   const [showImage, setShowImage] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
 
   // The palette can reach the shortcut sheet, which only the editor owns.
@@ -370,6 +378,50 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
     queue,
   });
 
+  // ── AI collaborators ────────────────────────────────────────────────────
+  /*
+   * Where the document last changed, by anyone — a collaborator's edit
+   * arriving counts the same as a keystroke here. Found as the first
+   * character that differs from the text before, which is where an edit
+   * (or the start of a pasted block) is.
+   */
+  const touched = useRef<Touch | null>(null);
+  const lastSeen = useRef(settled);
+  useEffect(() => {
+    const before = lastSeen.current;
+    lastSeen.current = settled;
+    if (before === settled) return;
+    let i = 0;
+    const limit = Math.min(before.length, settled.length);
+    while (i < limit && before.charCodeAt(i) === settled.charCodeAt(i)) i++;
+    touched.current = { offset: i, at: Date.now() };
+  }, [settled]);
+
+  const reviewers = useAiReviewers({
+    collaborators: doc.aiCollaborators,
+    myId: user?.id,
+    active: editing,
+    format: doc.format,
+    title: doc.name,
+    content: settled,
+    readContent: () => contentRef.current,
+    readNodes: () => buildOutline(contentRef.current, doc.format),
+    touched,
+    onReplace: (start, end, text) => apply({
+      content: contentRef.current.slice(0, start) + text + contentRef.current.slice(end),
+      start: start + text.length,
+      end: start + text.length,
+    }),
+  });
+  /** Find a suggestion's passage on the page, near the section it was made in. */
+  const locateSuggestion = useCallback((suggestion: Suggestion) => {
+    const text = contentRef.current;
+    const hits: number[] = [];
+    for (let i = text.indexOf(suggestion.quote); i >= 0; i = text.indexOf(suggestion.quote, i + 1)) hits.push(i);
+    const at = hits.sort((a, b) => Math.abs(a - suggestion.sectionStart) - Math.abs(b - suggestion.sectionStart))[0];
+    if (at !== undefined) editorRef.current?.select(at, at + suggestion.quote.length, { reveal: true, flash: true });
+  }, []);
+
   /** Remove a section and everything nested under it. By offset: two sections may share a title. */
   const deleteSection = useCallback((offset: number) => {
     editSections(dropSection, offset);
@@ -402,24 +454,24 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
   );
 
   /**
-   * Rewrite the document so its headings match a proposed outline.
-   *
-   * Sections the proposal leaves out keep their prose and are moved to the end
-   * rather than deleted — the writer is told how many, and can remove them
-   * deliberately.
+   * Rewrite the document so its headings match a proposed outline: kept
+   * sections keep their prose, new ones arrive empty, and the ones the
+   * proposal drops go — which the proposal listed before it was applied.
+   * Undo puts the old structure back in one step.
    */
-  const applyProposedOutline = useCallback((proposal: { title: string; level: number }[]) => {
-    const { result, orphans } = applyOutline(contentRef.current, doc.format, proposal);
+  const applyProposedOutline = useCallback((proposal: { title: string; level: number; from?: string }[]) => {
+    // The structure as it was goes into the history first, so a restructure
+    // can be undone long after the undo stack has moved on.
+    if (plan.id) void takeVersion(plan.id, contentRef.current, 'checkpoint', 'Before applying an outline').catch(() => {});
+    const { result, removed } = applyOutline(contentRef.current, doc.format, proposal);
     apply(result);
-    if (orphans.length) {
-      toast.info(
-        `Structure updated — ${orphans.length} section${orphans.length === 1 ? '' : 's'} not in the outline moved to the end`,
-        { description: orphans.slice(0, 4).join(', ') },
-      );
-    } else {
-      toast.success('Structure updated');
-    }
-  }, [apply, doc.format]);
+    toast.success(removed.length
+      ? `Outline applied — ${removed.length} section${removed.length === 1 ? '' : 's'} removed`
+      : 'Outline applied', {
+      description: removed.length ? removed.slice(0, 4).join(', ') + (removed.length > 4 ? '…' : '') : undefined,
+      action: { label: 'Undo', onClick: () => editorRef.current?.undo() },
+    });
+  }, [apply, doc.format, plan.id]);
 
   /**
    * Put a refined passage back where it came from.
@@ -451,6 +503,7 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
    * render of this screen.
    */
   const setOutlineWidth = useCallback((next: number) => updateOptions({ outlineWidth: next }), [updateOptions]);
+  const setAiWidth = useCallback((next: number) => updateOptions({ aiWidth: next }), [updateOptions]);
   const closeRail = useCallback(
     () => (compact ? setRailOpen(false) : updateOptions({ outline: false })),
     [compact, updateOptions],
@@ -462,20 +515,34 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
     // A request is for the panel it was made to: one left over would replay
     // on the next open — back to its tab, or its section re-sent to Write.
     if (!open) setAiRequest(undefined);
-    if (compact) { setAiDrawer(open); if (open) setRailOpen(false); return; }
+    if (compact) { setAiDrawer(open); if (open) { setRailOpen(false); setSourcesDrawer(false); } return; }
     setOptions(prev => {
       if (prev.ai === open) return prev;
-      const next = { ...prev, ai: open };
+      // One panel in the right-hand column at a time.
+      const next = { ...prev, ai: open, sources: open ? false : prev.sources };
       saveOptions(next);
       return next;
     });
   }, [compact]);
   const aiOpen = compact ? aiDrawer : options.ai;
 
+  /** The Sources panel: the same column as the AI panel, so opening one closes the other. */
+  const setSourcesOpen = useCallback((open: boolean) => {
+    if (compact) { setSourcesDrawer(open); if (open) { setRailOpen(false); setAiDrawer(false); } return; }
+    if (open) setAiRequest(undefined);
+    setOptions(prev => {
+      if (prev.sources === open) return prev;
+      const next = { ...prev, sources: open, ai: open ? false : prev.ai };
+      saveOptions(next);
+      return next;
+    });
+  }, [compact]);
+  const sourcesOpen = !aiOpen && (compact ? sourcesDrawer : options.sources);
+
   /** Open the AI panel on a tab — Refine's field for ⌘J — on the queue, or on Write with one section. */
-  const openAi = useCallback((focus: AiFocus = 'refine', section?: OutlineNode) => {
+  const openAi = useCallback((focus: AiFocus = 'refine', section?: OutlineNode, action?: string) => {
     setAiOpen(true);
-    setAiRequest({ focus, at: Date.now(), section });
+    setAiRequest({ focus, at: Date.now(), section, action });
     if (focus === 'refine') setAiFocus(n => n + 1);
   }, [setAiOpen]);
 
@@ -531,14 +598,23 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
   const caretSection = useMemo(() => tree.nodes.find(node => node.id === activeId) ?? null, [activeId, tree]);
   const slashCommands = useMemo<SlashCommand[]>(() => {
     const out: SlashCommand[] = [
-      { id: 'ask-ai', label: 'Ask AI…', group: 'AI', icon: Sparkles, terms: 'ai assistant write help instruction', hint: '⌘J' },
+      { id: 'ask-ai', label: 'Ask AI…', group: 'AI', icon: Sparkles, terms: 'ai assistant help instruction refine', hint: 'Tell it what to do with the text here', shortcut: '⌘J' },
+      { id: 'continue', label: 'Continue writing', group: 'AI', icon: ArrowRight, terms: 'ai keep going next', hint: 'Carry on from the caret, in your voice' },
     ];
     // At most one word: the "/query" being typed is itself counted as one.
     if (caretSection && wordsOf(caretSection) <= 1) {
-      out.push({ id: 'write-section', label: `Write “${caretSection.label}” with AI`, group: 'AI', icon: PenLine, terms: 'ai generate draft section' });
+      out.push({ id: 'write-section', label: `Write “${caretSection.label}”`, group: 'AI', icon: PenLine, terms: 'ai generate draft section', hint: 'Draft this empty section from the outline' });
     }
+    if (writer.missing > 0) {
+      out.push({ id: 'write-empty', label: `Write ${writer.missing} empty section${writer.missing === 1 ? '' : 's'}…`, group: 'AI', icon: Wand2, terms: 'ai generate all draft', hint: 'Review and run them from the Write tab' });
+    }
+    out.push(
+      { id: 'outline', label: tree.nodes.length ? 'Improve the outline…' : 'Build an outline…', group: 'AI', icon: ListTree, terms: 'ai structure sections plan', hint: 'Propose a structure to apply or discard' },
+      { id: 'context', label: 'Add context…', group: 'AI', icon: Globe, terms: 'ai sources pages links urls', hint: 'Pages the model reads when it writes' },
+      { id: 'upload-image', label: 'Upload image…', group: 'Media', icon: ImageUp, terms: 'picture photo file figure', hint: 'From your computer, or a link' },
+    );
     return out;
-  }, [caretSection, wordsOf]);
+  }, [caretSection, tree.nodes.length, wordsOf, writer.missing]);
 
   const runSlashCommand = useCallback((command: SlashCommand) => {
     if (!slash) return;
@@ -551,7 +627,12 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
     });
     setSlash(null);
     if (command.id === 'ask-ai') openAi('refine');
+    if (command.id === 'continue') openAi('refine', undefined, 'continue');
     if (command.id === 'write-section' && caretSection) writer.writeSection(caretSection);
+    if (command.id === 'write-empty') openAi('write');
+    if (command.id === 'outline') openAi('outline');
+    if (command.id === 'context') openAi('context');
+    if (command.id === 'upload-image') setShowImage(true);
   }, [apply, caretSection, openAi, slash, writer]);
 
   /** How an image sits in this format's markup. */
@@ -671,6 +752,38 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
     };
   }, [printing]);
 
+  // ── History ─────────────────────────────────────────────────────────────
+  /*
+   * Automatic snapshots. The first edit of a visit keeps the text as it was
+   * opened; after that, one every ten minutes of saved work. The server
+   * declines duplicates — same text, or another collaborator's snapshot
+   * inside the interval — so two open browsers do not double the history.
+   */
+  const snaps = useRef({ opened: doc.content, first: true, last: 0 });
+  useEffect(() => {
+    if (!editing || !plan.id) return;
+    const snap = snaps.current;
+    if (doc.saveState === 'dirty' && snap.first) {
+      snap.first = false;
+      snap.last = Date.now();
+      void takeVersion(plan.id, snap.opened, 'auto').catch(() => {});
+    } else if (doc.saveState === 'saved' && !snap.first && Date.now() - snap.last >= AUTO_SNAPSHOT_MS) {
+      snap.last = Date.now();
+      void takeVersion(plan.id, contentRef.current, 'auto').catch(() => {});
+    }
+  }, [doc.saveState, editing, plan.id]);
+
+  const readContent = useCallback(() => contentRef.current, []);
+  const restoreVersion = useCallback((content: string, label: string) => {
+    // Through the editor, as one change: it reaches collaborators like any
+    // edit, and ⌘Z takes it back.
+    apply({ content, start: 0, end: 0 });
+    toast.success(`Restored “${label}”`, {
+      description: 'The text it replaced is in the history.',
+      action: { label: 'Undo', onClick: () => editorRef.current?.undo() },
+    });
+  }, [apply]);
+
   const handleExport = useCallback((kind: 'link' | 'source' | 'copy' | 'print' | 'pdf') => {
     const body = doc.format === 'latex' ? wrapLatexDocument(doc.name, doc.content) : doc.content;
     if (kind === 'link') {
@@ -706,11 +819,15 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
     <div className="editor-root" data-editing={editing}>
       <EditorHeader
         name={doc.name}
+        format={doc.format}
         onRename={doc.setName}
         authorUsername={doc.authorUsername}
         coAuthorUsernames={doc.coAuthorUsernames}
         isAuthor={isOwner}
         onManageCoAuthors={() => setShowShare(true)}
+        aiCollaborators={doc.aiCollaborators}
+        aiStatuses={reviewers.statuses}
+        onOpenReview={() => openAi('review')}
         peers={doc.peers}
         saveState={doc.saveState}
         onSave={() => doc.save()}
@@ -738,6 +855,8 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
           onToggleOutline={toggleOutline}
           aiOpen={aiOpen}
           onToggleAi={() => setAiOpen(!aiOpen)}
+          sourcesOpen={sourcesOpen}
+          onToggleSources={() => setSourcesOpen(!sourcesOpen)}
           onShowShortcuts={() => setShowShortcuts(true)}
         />
       )}
@@ -829,6 +948,21 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
 
         {/* The AI panel: its own column on the right, apart from the outline —
             or a drawer over the document when the layout is compact. */}
+        {editing && compact && sourcesOpen && (
+          <div className="editor-rail-scrim" onClick={() => setSourcesOpen(false)} aria-hidden="true" />
+        )}
+        {editing && sourcesOpen && (
+          <SourcesPanel
+            content={doc.content}
+            format={doc.format}
+            compact={compact}
+            onClose={() => setSourcesOpen(false)}
+            onJump={offset => {
+              editorRef.current?.select(offset, offset, { reveal: true, flash: true });
+              if (compact) setSourcesDrawer(false);
+            }}
+          />
+        )}
         {editing && compact && aiOpen && (
           <div className="editor-rail-scrim" onClick={() => setAiOpen(false)} aria-hidden="true" />
         )}
@@ -849,6 +983,12 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
             request={aiRequest}
             onClose={() => setAiOpen(false)}
             compact={compact}
+            width={options.aiWidth}
+            onWidth={setAiWidth}
+            aiCollaborators={doc.aiCollaborators}
+            reviewers={reviewers}
+            onManageAi={isOwner ? () => setShowShare(true) : undefined}
+            onLocateSuggestion={locateSuggestion}
             writer={writer}
             wordsOf={wordsOf}
             onJump={goToSection}
@@ -888,6 +1028,10 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
         connected={doc.connected}
         peerCount={doc.peers.length}
         format={doc.format}
+        onHistory={plan.id ? () => setShowHistory(true) : undefined}
+        suggestions={reviewers.suggestions.length}
+        reviewing={Object.values(reviewers.statuses).some(status => status.state === 'reviewing')}
+        onSuggestions={doc.aiCollaborators.length ? () => openAi('review') : undefined}
       />
 
       {/* Both act on the document, so neither exists while reading it. */}
@@ -899,7 +1043,21 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
             coAuthors={doc.coAuthors}
             coAuthorUsernames={doc.coAuthorUsernames}
             onChange={doc.setCoAuthors}
+            aiCollaborators={doc.aiCollaborators}
+            onAiChange={doc.setAiCollaborators}
+            myId={user?.id}
+            statuses={reviewers.statuses}
           />
+
+          {plan.id && (
+            <HistoryDialog
+              open={showHistory}
+              onOpenChange={setShowHistory}
+              planId={plan.id}
+              readContent={readContent}
+              onRestore={restoreVersion}
+            />
+          )}
 
           <ImageDialog
             open={showImage}

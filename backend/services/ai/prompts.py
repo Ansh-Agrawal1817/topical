@@ -446,13 +446,16 @@ def refine_outline_prompt(outline: str, subject: str = "", instruction: str = ""
         "Return ONLY valid JSON, no code fence, in exactly this shape:\n"
         '{"summary": "one sentence on what you changed overall", '
         '"outline": [{"title": "Section name", "level": 1}], '
-        '"changes": [{"title": "Section name", "kind": "moved", "reason": "why"}]}\n\n'
+        '"changes": [{"title": "Section name", "kind": "renamed", "from": "Old section name", "reason": "why"}]}\n\n'
         "Rules:\n"
         "- `level` starts at 1 and never jumps by more than one between consecutive rows.\n"
         "- `kind` is one of: moved, renamed, added, removed, nested, split.\n"
         "- List a change for every row you altered, and for nothing you left alone.\n"
         "- Each `reason` is one short sentence naming the actual problem it fixes.\n"
-        "- `title` in `changes` must match the row's new title (or the old one, if removed)."
+        "- `title` in `changes` must match the row's new title (or the old one, if removed).\n"
+        "- `from` is the exact current title the row came from. Give it for every renamed "
+        "or split row (for a split, the row it was split out of); leave it out otherwise. "
+        "A written section's prose follows `from` to its new title."
     )
 
 
@@ -608,3 +611,49 @@ def strip_fences(text: str, fmt: Optional[str] = None) -> str:
     if lines[-1].strip() != "```":
         return stripped
     return "\n".join(lines[1:-1]).strip()
+
+
+# ---------------------------------------------------------------------------
+# Review — an AI collaborator reading the section someone just worked on
+# ---------------------------------------------------------------------------
+def review_prompt(
+    fmt: str, title: str, section: str, text: str, outline: str = "", instructions: str = "", seen: list[str] | None = None,
+) -> str:
+    """Ask for the few changes a section actually needs, and nothing else.
+
+    The collaborator runs every few seconds on whatever was last touched, so
+    an over-eager reviewer is noise in the margin of every paragraph. The
+    prompt is built to make silence the normal answer: only real problems,
+    each quoted exactly so it can be found and replaced, and an empty list
+    when the section is fine — which it usually should be.
+    """
+    markup = "LaTeX" if fmt == "latex" else "Markdown/MDX"
+    about = f'The document is "{title}".\n' if title else ""
+    shape = f"Its outline:\n<outline>\n{outline}\n</outline>\n" if outline.strip() else ""
+    asked = f"\nThe author asked you, as their reviewer, to focus on: {instructions.strip()}\n" if instructions.strip() else ""
+    skip = ""
+    if seen:
+        listed = "\n".join(f"- {q[:200]}" for q in seen[:40])
+        skip = f"\nThese passages were already raised or dismissed. Do not suggest changes to them again:\n{listed}\n"
+    return (
+        "You are a careful co-author reviewing one section of a shared document while others write it.\n"
+        f"{about}{shape}"
+        f"The section is: {section}\n"
+        f"It is written in {markup}. Here is its text:\n<section>\n{text}\n</section>\n"
+        f"{asked}{skip}"
+        "\nSuggest a change ONLY where something is actually wrong or clearly worse than it should be: a factual or "
+        "mathematical error, a contradiction with the rest of the outline, a sentence whose meaning is unclear or "
+        "broken, a spelling or grammar mistake, or broken markup. Do not rewrite for taste, do not restyle sentences "
+        "that work, do not add content, and do not comment on text that is plainly unfinished mid-sentence — someone "
+        "may still be typing it. If the section is fine, return no suggestions; that is the expected answer most of "
+        "the time. Never more than 3.\n\n"
+        "Return ONLY valid JSON, no code fence, in exactly this shape:\n"
+        '{"suggestions": [{"quote": "exact text from the section", "replacement": "what it should say instead", '
+        '"kind": "error", "reason": "one short sentence"}]}\n\n'
+        "Rules:\n"
+        "- `quote` is copied character for character from the section, markup included, and is as short as possible "
+        "while still unique — a phrase or a sentence, never a whole paragraph.\n"
+        "- `replacement` replaces exactly the quote, in the same markup.\n"
+        "- `kind` is one of: error, clarity, grammar, consistency, markup.\n"
+        '- Nothing to change: {"suggestions": []}.'
+    )

@@ -4,9 +4,11 @@ from .lesson_plan import LessonPlan
 from .post import Post, PostComment, PostVote
 from .session import AuthSession
 from .user import User, new_user_id, normalize_email
+from .version import DocumentVersion
 
 __all__ = [
     "AuthSession",
+    "DocumentVersion",
     "LessonPlan",
     "Post",
     "PostComment",

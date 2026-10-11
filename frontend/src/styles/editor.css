@@ -59,6 +59,9 @@
   padding: 5px 9px;
   border-radius: var(--radius);
   min-width: 6ch;
+  /* As wide as the name, so the format chip sits right after it rather
+     than across a field's worth of empty space. */
+  field-sizing: content;
   /* Was 28ch, which cut "Retrieval-Augmented Generation" to "…Ger" with no
      ellipsis — an <input> clips rather than truncating. Sized off the header
      instead, so a long name uses the room the header actually has. */
@@ -83,6 +86,11 @@ h1.editor-title--static {
   cursor: default;
 }
 h1.editor-title--static:hover { background: transparent; }
+
+/* MDX or LaTeX, right after the name it describes. */
+.editor-format { flex-shrink: 0; margin-left: -2px; }
+/* A file's extension at the end of a download row. */
+.editor-menu-ext { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
 
 .editor-byline {
   display: flex; align-items: center; gap: 7px;
@@ -246,7 +254,156 @@ h1.editor-title--static:hover { background: transparent; }
 .find-count { min-width: 52px; }
 /* ── Slash menu ── */
 /* Placement at the caret; the panel is a MenuPanel. */
-.slash-menu { position: absolute; z-index: var(--z-popover); width: 320px; max-height: 300px; overflow-y: auto; }
+/* ── The / menu ──
+   A list with descriptions on the left, and what the highlighted entry puts
+   on the page on the right. One panel, three bands: what is being typed,
+   the two panes, and the keys. */
+.slash-menu {
+  position: absolute;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100% - 16px));
+  max-height: min(420px, 70vh);
+  padding: 0;
+  overflow: hidden;
+}
+.slash-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  flex-shrink: 0;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+.slash-query { font-family: var(--font-mono); font-weight: 600; color: var(--ink); }
+.slash-placeholder { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.slash-total {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-ghost);
+}
+.slash-body { display: flex; flex: 1; min-height: 0; }
+.slash-list {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.slash-group {
+  padding: 10px 8px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-ghost);
+}
+.slash-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  color: var(--ink-2);
+}
+.slash-item[data-active] { background: var(--ink-a06); color: var(--ink); }
+.slash-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--ink-muted);
+}
+.slash-item[data-active] .slash-icon { border-color: var(--line-strong); color: var(--ink); }
+/* The AI rows carry the accent in the tile, not in faded text: the label
+   stays full ink, which is what made "Ask AI…" unreadable when it was the
+   highlighted row. */
+.slash-item[data-ai] .slash-icon { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent-600); }
+.slash-text { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.slash-label { overflow: hidden; font-size: 13px; font-weight: 500; line-height: 1.3; white-space: nowrap; text-overflow: ellipsis; }
+.slash-hint { overflow: hidden; font-size: 11.5px; line-height: 1.35; white-space: nowrap; text-overflow: ellipsis; color: var(--ink-faint); }
+.slash-kbd { flex-shrink: 0; }
+.slash-empty { display: flex; flex-direction: column; gap: 4px; padding: 28px 12px; font-size: 12.5px; text-align: center; color: var(--ink-muted); }
+.slash-empty span { font-size: 11.5px; color: var(--ink-faint); }
+
+.slash-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 220px;
+  flex-shrink: 0;
+  padding: 14px;
+  overflow-y: auto;
+  border-left: 1px solid var(--line-soft);
+  background: var(--ink-a02);
+}
+.slash-preview-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink-2);
+}
+.slash-preview-title { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.slash-preview-hint, .slash-preview-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--ink-muted); }
+.slash-preview-label {
+  margin-top: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-ghost);
+}
+.slash-preview-code {
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  max-height: 150px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre;
+  color: var(--ink-2);
+}
+.slash-preview-key { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 8px; font-size: 11.5px; color: var(--ink-faint); }
+
+.slash-foot {
+  display: flex;
+  gap: 14px;
+  flex-shrink: 0;
+  padding: 7px 12px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+.slash-foot span { display: inline-flex; align-items: center; gap: 3px; }
+.slash-foot .kbd { display: inline-grid; place-items: center; min-width: 16px; height: 16px; }
+
+/* Narrow: the list alone, descriptions kept. */
+@media (max-width: 640px) {
+  .slash-preview, .slash-foot { display: none; }
+  .slash-menu { width: min(340px, calc(100% - 16px)); }
+}
 
 
 .share-results {
@@ -379,6 +536,8 @@ h1.editor-title--static:hover { background: transparent; }
    scattered through the file so the compact layout can be read in one place.
    ═══════════════════════════════════════════════════════════════════════ */
 @media (max-width: 899px) {
+  /* The name needs every pixel at this width; the format is in the menu's file names. */
+  .editor-format { display: none; }
   /* The chrome loses a third of its padding and the title stops claiming a
      share of the viewport it can no longer afford. */
   .editor-header { gap: 4px; padding: 6px 8px; }
@@ -451,3 +610,246 @@ h1.editor-title--static:hover { background: transparent; }
   .editor-status { padding: 0 8px; gap: 10px; }
 }
 
+
+/* ── Version history (components/HistoryDialog.tsx) ──
+   A list of snapshots on the left, grouped by day; on the right, what the
+   chosen one would change about the page, and the way back to it. */
+.history-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: min(1040px, calc(100vw - 32px));
+  max-width: none;
+  height: min(720px, calc(100vh - 48px));
+  padding: 0;
+  overflow: hidden;
+}
+.history-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 52px 14px 20px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink-muted);
+}
+.history-title { font-size: 15px; font-weight: 600; color: var(--ink); }
+.history-sub { margin-top: 2px; font-size: 12px; color: var(--ink-faint); }
+.history-body { display: flex; flex: 1; min-height: 0; }
+.history-side {
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  flex-shrink: 0;
+  min-height: 0;
+  border-right: 1px solid var(--line-soft);
+  background: var(--ink-a02);
+}
+.history-snap { display: flex; gap: 6px; padding: 12px; border-bottom: 1px solid var(--line-soft); }
+.history-snap-input, .history-rename {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.history-snap-input:focus, .history-rename:focus { outline: none; border-color: var(--accent-400); box-shadow: 0 0 0 3px var(--accent-soft); }
+.history-list { flex: 1; min-height: 0; padding: 4px 8px 12px; overflow-y: auto; scrollbar-width: thin; }
+.history-day {
+  padding: 10px 8px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-ghost);
+}
+.history-row { position: relative; display: flex; align-items: center; border-radius: var(--radius-sm); }
+.history-row:hover { background: var(--ink-a04); }
+.history-row[data-active] { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.history-pick {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1px 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 7px 8px 7px 10px;
+  text-align: left;
+}
+.history-name { overflow: hidden; font-size: 13px; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); }
+.history-row[data-named] .history-name { font-weight: 600; }
+.history-meta { grid-column: 1; overflow: hidden; font-size: 11.5px; white-space: nowrap; text-overflow: ellipsis; color: var(--ink-faint); }
+.history-kind {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-faint);
+  background: var(--ink-a06);
+}
+.history-kind[data-kind='manual'] { color: var(--accent-600); background: var(--accent-soft); }
+.history-kind[data-kind='restore'], .history-kind[data-kind='checkpoint'] { color: var(--ink-muted); }
+.history-tools { display: none; gap: 2px; padding-right: 6px; }
+.history-row:hover .history-tools, .history-row:focus-within .history-tools { display: inline-flex; }
+.history-row:hover .history-kind, .history-row:focus-within .history-kind { visibility: hidden; }
+.history-rename { margin: 4px; }
+.history-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.history-main-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line-soft); }
+.history-main-head > .min-w-0 { flex: 1; }
+.history-main-title { overflow: hidden; font-size: 14px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); }
+.history-main-meta { margin-top: 2px; font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.history-main-meta b[data-tone='added'] { color: var(--status-success); font-weight: 600; }
+.history-main-meta b[data-tone='cut'] { color: var(--status-danger); font-weight: 600; }
+.history-view { flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; }
+.history-text {
+  margin: 0;
+  padding: 16px 20px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink-2);
+}
+.history-diff { padding: 8px 0 16px; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; }
+.history-legend { display: flex; gap: 14px; padding: 4px 16px 8px; font-family: var(--font-sans); font-size: 11px; color: var(--ink-faint); }
+.history-legend span::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 2px; vertical-align: 0; }
+.history-legend [data-tone='cut']::before { background: color-mix(in srgb, var(--status-danger) 45%, transparent); }
+.history-legend [data-tone='added']::before { background: color-mix(in srgb, var(--status-success) 45%, transparent); }
+.history-line { display: flex; padding: 0 16px 0 0; white-space: pre-wrap; word-break: break-word; color: var(--ink-muted); }
+.history-gutter { flex-shrink: 0; width: 28px; text-align: center; color: var(--ink-ghost); user-select: none; }
+.history-line[data-kind='added'] { color: var(--ink); background: color-mix(in srgb, var(--status-success) 12%, transparent); }
+.history-line[data-kind='added'] .history-gutter { color: var(--status-success); }
+.history-line[data-kind='cut'] { color: var(--ink-2); background: color-mix(in srgb, var(--status-danger) 10%, transparent); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--status-danger) 50%, transparent); }
+.history-line[data-kind='cut'] .history-gutter { color: var(--status-danger); text-decoration: none; }
+.history-fold {
+  margin: 4px 16px;
+  padding: 2px 10px;
+  border-radius: var(--radius-xs);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--ink-faint);
+  background: var(--ink-a04);
+}
+.history-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; min-height: 120px; padding: 24px; font-size: 12.5px; text-align: center; color: var(--ink-faint); }
+@media (max-width: 760px) {
+  .history-body { flex-direction: column; }
+  .history-side { width: auto; max-height: 42%; border-right: 0; border-bottom: 1px solid var(--line-soft); }
+  .history-main-head { flex-wrap: wrap; }
+}
+
+/* The status bar's way into the history. */
+.editor-status-button {
+  /* The bar is one line of 11px text. Buttons get a 40px touch minimum
+     everywhere else, and here that doubled the bar's height. */
+  min-height: 0;
+  line-height: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: -2px -6px;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  color: inherit;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.editor-status-button:hover { color: var(--ink); background: var(--ink-a06); }
+.editor-status-button:focus-visible { outline: 2px solid var(--accent-400); outline-offset: 1px; }
+
+/* AI collaborators in the header: overlapping marks, lit while one reads. */
+.editor-ais { display: inline-flex; align-items: center; flex-shrink: 0; min-height: 0; padding: 3px 4px; border-radius: 999px; }
+.editor-ais:hover { background: var(--ink-a06); }
+.editor-ai {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-left: -6px;
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  background: var(--surface-2);
+  transition: box-shadow var(--dur-base) var(--ease-out), opacity var(--dur-base) var(--ease-out);
+}
+.editor-ai:first-child { margin-left: 0; }
+.editor-ai .provider-mark { transform: scale(0.8); }
+.editor-ai[data-state='reviewing'] { box-shadow: 0 0 0 2px var(--accent-400); }
+.editor-ai:is([data-state='off'], [data-state='error']) { opacity: 0.45; }
+.editor-ai--more { font-size: 10px; font-weight: 600; color: var(--ink-muted); }
+.editor-status-button[data-count] { color: var(--accent-600); font-weight: 600; }
+
+/* ── Share dialog: AI collaborators (components/AiCollaboratorsSection.tsx) ── */
+.share-dialog { max-height: calc(100vh - 48px); overflow-y: auto; }
+.aic-list { display: flex; flex-direction: column; gap: 6px; margin: 0 0 8px; padding: 0; list-style: none; }
+.aic-row { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--ink-a02); }
+.aic-row[data-open] { border-color: var(--line-strong); background: var(--surface); }
+.aic-head { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 12px; }
+.aic-name { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; text-align: left; }
+.aic-title { overflow: hidden; font-size: 13px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); }
+.aic-sub { overflow: hidden; font-size: 11.5px; white-space: nowrap; text-overflow: ellipsis; color: var(--ink-faint); }
+.aic-chevron { transition: transform var(--dur-base) var(--ease-out); }
+.aic-row[data-open] .aic-chevron { transform: rotate(180deg); }
+.aic-switch { position: relative; display: inline-flex; flex-shrink: 0; cursor: pointer; }
+.aic-switch input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.aic-switch span {
+  width: 30px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--ink-a12, var(--line-strong));
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.aic-switch span::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.aic-switch input:checked + span { background: var(--accent-500); }
+.aic-switch input:checked + span::after { transform: translateX(12px); }
+.aic-switch input:focus-visible + span { outline: 2px solid var(--accent-400); outline-offset: 2px; }
+.aic-body { display: flex; flex-direction: column; gap: 10px; padding: 4px 12px 12px; border-top: 1px solid var(--line-soft); }
+.aic-field { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 11.5px; font-weight: 500; color: var(--ink-muted); }
+.aic-field--row { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; }
+.aic-field :is(input, textarea, select) {
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink);
+  resize: vertical;
+}
+.aic-field--row select { width: auto; }
+.aic-field :is(input, textarea, select):focus { outline: none; border-color: var(--accent-400); box-shadow: 0 0 0 3px var(--accent-soft); }
+.aic-note { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--ink-faint); }
+.aic-actions { display: flex; justify-content: flex-end; }
+.aic-add { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; }
+.aic-add-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  text-align: left;
+  color: var(--ink-faint);
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.aic-add-btn:hover:not(:disabled) { border-color: var(--accent-400); background: var(--accent-soft); color: var(--accent-600); }
+.aic-add-text { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+/* A phone's header is the title's; the status bar still carries the suggestions. */
+@media (max-width: 600px) { .editor-ais { display: none; } }

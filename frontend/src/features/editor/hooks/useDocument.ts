@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { saveLessonPlan, type LessonPlanResponse } from '@/lib/api';
 import { documentContent } from '@/lib/documents';
-import { formatOf, LATEX_PREFIX, type DocFormat, type LessonPlan } from '@/lib/types';
+import { formatOf, LATEX_PREFIX, type AiCollaborator, type DocFormat, type LessonPlan } from '@/lib/types';
 import { useYjsCollab } from '@/hooks/useYjsCollab';
 
 /**
@@ -36,6 +36,9 @@ export interface DocumentModel {
   coAuthors: string[];
   coAuthorUsernames: (string | null)[];
   setCoAuthors: (ids: string[], usernames: (string | null)[]) => void;
+  /** AI models on the document as reviewers. */
+  aiCollaborators: AiCollaborator[];
+  setAiCollaborators: (next: AiCollaborator[]) => void;
   /** Whether the document is on the community library. */
   isPublic: boolean;
   /** Live collaboration. */
@@ -85,6 +88,7 @@ export function useDocument(
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [authorUsername] = useState<string | null>(plan.authorUsername ?? null);
   const [coAuthors, setCoAuthorIds] = useState<string[]>(plan.coAuthors ?? []);
+  const [aiCollaborators, setAiCollaboratorsState] = useState<AiCollaborator[]>(plan.aiCollaborators ?? []);
   const [coAuthorUsernames, setCoAuthorUsernames] = useState<(string | null)[]>(
     plan.coAuthorUsernames ?? [],
   );
@@ -262,6 +266,22 @@ export function useDocument(
       .catch(() => toast.error('Failed to save co-author changes'));
   }, [planFor]);
 
+  // ── AI collaborators ────────────────────────────────────────────────────
+  // Saved at once, like co-authors. Only the owner's save is honoured; the
+  // server keeps the stored list for anyone else.
+  // Debounced: their settings are typed into (a name, instructions), and a
+  // save per keystroke is a request per keystroke.
+  const aiSaveTimer = useRef<number | undefined>(undefined);
+  const setAiCollaborators = useCallback((next: AiCollaborator[]) => {
+    setAiCollaboratorsState(next);
+    window.clearTimeout(aiSaveTimer.current);
+    aiSaveTimer.current = window.setTimeout(() => {
+      saveLessonPlan(latestPlan.current({ aiCollaborators: next }))
+        .then(() => setLastSavedAt(Date.now()))
+        .catch(() => toast.error('Failed to save the AI collaborators'));
+    }, 600);
+  }, []);
+
   return {
     projectId,
     name,
@@ -276,6 +296,8 @@ export function useDocument(
     coAuthors,
     coAuthorUsernames,
     setCoAuthors,
+    aiCollaborators,
+    setAiCollaborators,
     isPublic,
     peers,
     connected,

@@ -164,6 +164,10 @@ def _values(payload: LessonPlanInput, *, creating: bool) -> dict[str, Any]:
         values["co_authors"] = payload.coAuthors
     elif creating:
         values["co_authors"] = []
+    if payload.aiCollaborators is not None:
+        values["ai_collaborators"] = [ai.model_dump() for ai in payload.aiCollaborators]
+    elif creating:
+        values["ai_collaborators"] = []
     if payload.isPublic is not None:
         values["is_public"] = payload.isPublic
     elif creating:
@@ -207,6 +211,10 @@ async def replace(
     if "co_authors" in values:
         values["co_authors"] = case(
             (is_owner, type_coerce(values["co_authors"], JSONB)), else_=LessonPlan.co_authors
+        )
+    if "ai_collaborators" in values:
+        values["ai_collaborators"] = case(
+            (is_owner, type_coerce(values["ai_collaborators"], JSONB)), else_=LessonPlan.ai_collaborators
         )
     if "is_public" in values:
         values["is_public"] = case((is_owner, values["is_public"]), else_=LessonPlan.is_public)

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Keyboard, ListTree, Slash, Sparkles, Upload } from 'lucide-react';
+import { BookMarked, ChevronDown, Keyboard, ListTree, Slash, Sparkles, Upload } from 'lucide-react';
 import type { DocFormat } from '@/lib/types';
-import { Button, Chip, IconButton, MenuItem, MenuPanel, Divider, Kbd } from '@/components/ui';
+import { Button, IconButton, MenuItem, MenuPanel, Divider, Kbd } from '@/components/ui';
 import { actionById, TOOLBAR_GROUPS, type EditorAction } from '../lib/actions';
 
 interface Props {
@@ -15,6 +15,8 @@ interface Props {
   /** The AI panel, on the right of the document. */
   aiOpen: boolean;
   onToggleAi: () => void;
+  sourcesOpen: boolean;
+  onToggleSources: () => void;
   /** Opens the keyboard-shortcut sheet. */
   onShowShortcuts: () => void;
 }
@@ -36,7 +38,7 @@ const SHORTCUT_HINT: Record<string, string> = {
  * Every button is the same action the `/` menu runs.
  */
 export function Toolbar({
-  format, onRun, onUploadImage, outlineOpen, onToggleOutline, aiOpen, onToggleAi, onShowShortcuts,
+  format, onRun, onUploadImage, outlineOpen, onToggleOutline, aiOpen, onToggleAi, sourcesOpen, onToggleSources, onShowShortcuts,
 }: Props) {
   const barRef = useRef<HTMLDivElement>(null);
   /**
@@ -115,12 +117,6 @@ export function Toolbar({
       ref={barRef}
       onKeyDown={onKeyDown}
     >
-      <Chip tone={format === 'latex' ? 'latex' : 'accent'} mono>
-        {format === 'latex' ? 'LaTeX' : 'MDX'}
-      </Chip>
-
-      <Divider orientation="vertical" />
-
       {/* The outline is the spine of the document here, so its toggle belongs
           on the bar rather than three clicks deep in the view menu. */}
       <Button
@@ -250,6 +246,18 @@ export function Toolbar({
         >
           <Sparkles className="h-3.5 w-3.5" />
           AI
+        </Button>
+        <Button
+          variant="secondary"
+          size="md"
+          active={sourcesOpen}
+          onClick={onToggleSources}
+          aria-pressed={sourcesOpen}
+          title={sourcesOpen ? 'Hide sources' : 'Show sources — what the document cites'}
+          {...roving(index++)}
+        >
+          <BookMarked className="h-3.5 w-3.5" />
+          Sources
         </Button>
         <IconButton
           size="lg"

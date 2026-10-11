@@ -133,9 +133,17 @@ export async function refinePlan(
     .filter(item => item.title.trim())
     .map(item => ({ title: item.title, level: item.level, words: item.words ?? 0 }));
   const result = await refineOutline(payload, subject, instruction, format);
+  // A renamed row names the title it had, so its prose can follow it.
+  const origin = new Map(result.changes
+    .filter(change => change.from?.trim())
+    .map(change => [change.title.trim().toLowerCase(), change.from!.trim()]));
   return {
     summary: result.summary,
-    plan: normalise(result.outline.map(row => planItem(row.title, row.level))),
+    plan: normalise(result.outline.map(row => {
+      const item = planItem(row.title, row.level);
+      const from = origin.get(row.title.trim().toLowerCase());
+      return from ? { ...item, from } : item;
+    })),
     changes: result.changes,
   };
 }

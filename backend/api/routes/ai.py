@@ -21,6 +21,7 @@ from ...schemas.ai import (
     GenerateSectionRequest,
     OutlineFromDocumentRequest,
     RefineOutlineRequest,
+    ReviewRequest,
     SearchTopicsRequest,
     SourcesRequest,
     TransformRequest,
@@ -83,6 +84,12 @@ async def refine_outline(
 ) -> dict:
     """A better-organised outline, next to the reasoning for each move."""
     return await generation.refine_outline(req, credentials=creds)
+
+
+@router.post("/review")
+async def review(req: ReviewRequest, user: CurrentUser, creds: Credentials) -> dict:
+    """An AI collaborator's suggestions for one section — usually none."""
+    return await generation.review(req, credentials=creds)
 
 
 @router.post("/generate-section", response_class=PlainTextResponse)

@@ -17,6 +17,11 @@ const Toaster = (props: ToasterProps) => (
     // The surface comes from the tokens (see `.toast` in buttons.css): this
     // was a fixed dark rgba at the mount site, a smudge on the cream page.
     toastOptions={{ className: "toast" }}
+    // Bottom-centre, above the editor's status bar. Bottom-right put every
+    // toast over the AI panel's queue bar and the status bar's buttons — the
+    // controls a toast about an AI job is usually telling you to reach for.
+    position="bottom-center"
+    offset={40}
     {...props}
   />
 );

@@ -18,6 +18,11 @@ export interface PlanItem {
   title: string;
   /** 1-based heading depth. */
   level: number;
+  /**
+   * In a proposal, the existing heading this row was renamed or split from —
+   * so the prose under the old title follows it to the new one.
+   */
+  from?: string;
 }
 
 /** Headings stop being meaningful past this, in both formats. */

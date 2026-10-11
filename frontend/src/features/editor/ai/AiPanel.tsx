@@ -12,10 +12,15 @@ import { WritePanel } from './WritePanel';
 import { RefinePanel } from './RefinePanel';
 import { QueuePanel } from './QueuePanel';
 import { ContextPanel } from './ContextPanel';
+import { ReviewPanel } from './ReviewPanel';
+import type { AiReviewers, Suggestion } from './reviewers';
+import type { AiCollaborator } from '@/lib/types';
 import { isActive, useAiJobs, useSecondTick, type AiQueue, type Job } from './queue';
+import { useDragResize } from '../hooks/useDragResize';
+import { MAX_AI_WIDTH, MIN_AI_WIDTH } from '../lib/viewOptions';
 import type { ContextShelf } from './shelf';
 
-export type AiTab = 'outline' | 'write' | 'refine' | 'context';
+export type AiTab = 'outline' | 'write' | 'refine' | 'review' | 'context';
 /** What can be asked to come into view: a tab, or the queue. */
 export type AiFocus = AiTab | 'queue';
 /** A request to show part of the panel; `section` sends one section to Write. */
@@ -23,12 +28,15 @@ export interface AiRequest {
   focus: AiFocus;
   at: number;
   section?: OutlineNode;
+  /** A Refine action to run on arrival — "/continue" from the slash menu. */
+  action?: string;
 }
 
 const TABS: { id: AiTab; label: string; title: string }[] = [
   { id: 'outline', label: 'Outline', title: 'Build or change the structure' },
   { id: 'write', label: 'Write', title: 'Write sections with AI' },
   { id: 'refine', label: 'Refine', title: 'Rewrite, extend or explain the selection' },
+  { id: 'review', label: 'Review', title: 'What your AI collaborators suggest' },
   { id: 'context', label: 'Context', title: 'What the model reads when it writes' },
 ];
 
@@ -72,7 +80,8 @@ function queueSummary(jobs: Job[]): { text: string; state: 'idle' | 'busy' | 'fa
  */
 export function AiPanel({
   queue, shelf, subject, selection, content, format, title, outline, onReplace, onInsertAfter, onApplyOutline,
-  focusSignal, request, onClose, compact, writer, wordsOf, onJump,
+  focusSignal, request, onClose, compact, writer, wordsOf, onJump, width, onWidth,
+  aiCollaborators, reviewers, onManageAi, onLocateSuggestion,
 }: {
   writer: SectionWriter;
   wordsOf: (node: OutlineNode) => number;
@@ -87,13 +96,21 @@ export function AiPanel({
   outline: OutlineNode[];
   onReplace: (range: { start: number; end: number }, passage: string, text: string) => void;
   onInsertAfter: (at: number, text: string) => void;
-  onApplyOutline: (plan: { title: string; level: number }[]) => void;
+  onApplyOutline: (plan: { title: string; level: number; from?: string }[]) => void;
   /** Bumped by ⌘J, to put the cursor in Refine's instruction field. */
   focusSignal: number;
   /** A tab, the queue, or one section to write, asked to be shown. */
   request?: AiRequest;
   onClose: () => void;
   compact?: boolean;
+  /** Its width beside the document; ignored as a drawer. */
+  width: number;
+  onWidth: (next: number) => void;
+  aiCollaborators: AiCollaborator[];
+  reviewers: AiReviewers;
+  /** Open the dialog where AI collaborators are added. Absent for anyone but the owner. */
+  onManageAi?: () => void;
+  onLocateSuggestion: (suggestion: Suggestion) => void;
 }) {
   const jobs = useAiJobs(queue);
   const [tab, setTabState] = useState<AiTab>(loadTab);
@@ -138,13 +155,31 @@ export function AiPanel({
   const openContext = useCallback(() => setTab('context'), [setTab]);
   const openOutline = useCallback(() => setTab('outline'), [setTab]);
 
+  const clampWidth = (next: number) => Math.min(Math.max(Math.round(next), MIN_AI_WIDTH), MAX_AI_WIDTH);
+  // The handle is on the panel's left edge, so dragging left widens it.
+  const startResize = useDragResize({ from: () => width, to: (dx, start) => clampWidth(start - dx), onChange: onWidth });
+  const resizeKeys = (event: React.KeyboardEvent) => {
+    const step = event.shiftKey ? 64 : 16;
+    const next = event.key === 'ArrowLeft' ? width + step : event.key === 'ArrowRight' ? width - step : null;
+    if (next === null) return;
+    event.preventDefault();
+    onWidth(clampWidth(next));
+  };
+
   const active = jobs.filter(isActive).length;
   const summary = queueSummary(jobs);
   const credential = getDefaultCredential();
   const contextCount = shelf.urls.length;
 
   return (
-    <aside className="ai-side" data-drawer={compact || undefined} aria-label="AI">
+    <aside className="ai-side" data-drawer={compact || undefined} aria-label="AI"
+      style={compact ? undefined : { width }}>
+      {!compact && (
+        <div className="ai-resize" onMouseDown={startResize} onKeyDown={resizeKeys} onDoubleClick={() => onWidth(348)}
+          role="separator" aria-orientation="vertical" aria-label="Resize the AI panel" tabIndex={0}
+          aria-valuemin={MIN_AI_WIDTH} aria-valuemax={MAX_AI_WIDTH} aria-valuenow={width}
+          title="Drag to resize · double-click to reset" />
+      )}
       <header className="side-head">
         <Sparkles className="side-head-icon side-head-icon--accent h-4 w-4" aria-hidden="true" />
         <h2 className="side-head-title">AI</h2>
@@ -164,7 +199,7 @@ export function AiPanel({
       <div className="ai-tabs" role="tablist" aria-label="AI tools" ref={tabsRef} onKeyDown={tabKeys}>
         {TABS.map(item => {
           const selected = item.id === tab;
-          const count = item.id === 'context' ? contextCount : item.id === 'write' ? writer.missing : 0;
+          const count = item.id === 'context' ? contextCount : item.id === 'write' ? writer.missing : item.id === 'review' ? reviewers.suggestions.length : 0;
           return (
             <button
               key={item.id}
@@ -180,7 +215,7 @@ export function AiPanel({
             >
               {item.label}
               {count > 0 && (
-                <span className="ai-tab-count" aria-label={item.id === 'context' ? `${count} in use` : `${count} empty`}>{count}</span>
+                <span className="ai-tab-count" aria-label={item.id === 'context' ? `${count} in use` : item.id === 'review' ? `${count} suggestions` : `${count} empty`}>{count}</span>
               )}
             </button>
           );
@@ -202,7 +237,11 @@ export function AiPanel({
           <RefinePanel
             selection={selection} content={content} format={format} title={title} outline={outline}
             queue={queue} onReplace={onReplace} onInsertAfter={onInsertAfter} focusSignal={focusSignal}
+            runRequest={request?.focus === 'refine' && request.action ? { action: request.action, at: request.at } : undefined}
           />
+        )}
+        {tab === 'review' && (
+          <ReviewPanel collaborators={aiCollaborators} reviewers={reviewers} onManage={onManageAi} onLocate={onLocateSuggestion} />
         )}
         {tab === 'context' && <ContextPanel shelf={shelf} subject={subject} />}
       </div>

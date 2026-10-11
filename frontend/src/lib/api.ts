@@ -1,5 +1,5 @@
 import { queryOptions } from "@tanstack/react-query";
-import type { DocFormat, LessonPlan } from "@/lib/types";
+import type { AiCollaborator, DocFormat, LessonPlan } from "@/lib/types";
 import { getDefaultCredential, type AiProvider } from "@/lib/aiCredentials";
 import { AiKeyDeclined, requestAiKey } from "@/lib/aiKeyGate";
 
@@ -416,6 +416,8 @@ export interface OutlineChange {
   title: string;
   kind: string;
   reason: string;
+  /** For a rename or split: the current title the row came from. */
+  from?: string;
 }
 
 export interface RefinedOutline {
@@ -469,6 +471,7 @@ export type LessonPlanResponse = {
   /** Positional against `coAuthors`; null where that person has no handle. */
   coAuthorUsernames?: (string | null)[];
   isPublic: boolean;
+  aiCollaborators?: AiCollaborator[];
   createdAt: string | null;
   updatedAt: string | null;
 };
@@ -599,4 +602,101 @@ export async function fetchPersonProfile(
 export function personName(p: Pick<Person, "givenName" | "familyName" | "username">): string {
   const full = [p.givenName, p.familyName].filter(Boolean).join(" ").trim();
   return full || p.username || "Member";
+}
+
+// ── Document history ──────────────────────────────────────────────────────
+
+export type VersionKind = "auto" | "manual" | "restore" | "checkpoint";
+
+/** One snapshot of a document's text, without the text. */
+export interface DocumentVersion {
+  id: number;
+  name: string | null;
+  kind: VersionKind;
+  words: number;
+  createdBy: string;
+  createdByUsername: string | null;
+  createdAt: string | null;
+}
+
+export async function listVersions(planId: number): Promise<DocumentVersion[]> {
+  return (await json<{ versions: DocumentVersion[] }>(`/lessonPlans/${planId}/versions`, {
+    failure: "Could not load the history",
+  })).versions;
+}
+
+export async function getVersion(planId: number, versionId: number): Promise<DocumentVersion & { content: string }> {
+  return json(`/lessonPlans/${planId}/versions/${versionId}`, { failure: "Could not load that version" });
+}
+
+/** Take a snapshot. Null when the server declined one that would add nothing. */
+export async function takeVersion(
+  planId: number, content: string, kind: VersionKind, name?: string,
+): Promise<DocumentVersion | null> {
+  return (await json<{ version: DocumentVersion | null }>(`/lessonPlans/${planId}/versions`, {
+    method: "POST",
+    body: { content, kind, name },
+    failure: "Could not save a snapshot",
+  })).version;
+}
+
+export async function renameVersion(planId: number, versionId: number, name: string): Promise<DocumentVersion> {
+  return json(`/lessonPlans/${planId}/versions/${versionId}`, {
+    method: "PATCH",
+    body: { name },
+    failure: "Could not rename that version",
+  });
+}
+
+export async function deleteVersion(planId: number, versionId: number): Promise<void> {
+  await request(`/lessonPlans/${planId}/versions/${versionId}`, {
+    method: "DELETE",
+    failure: "Could not delete that version",
+  });
+}
+
+
+// ── AI review ─────────────────────────────────────────────────────────────
+
+export interface ReviewSuggestion {
+  /** Exact text from the section — what the replacement replaces. */
+  quote: string;
+  replacement: string;
+  kind: "error" | "clarity" | "grammar" | "consistency" | "markup";
+  reason: string;
+}
+
+export interface ReviewBody {
+  format: DocFormat;
+  title?: string;
+  section: string;
+  text: string;
+  outline?: string;
+  instructions?: string;
+  seen?: string[];
+}
+
+/**
+ * One section reviewed by one AI collaborator, with *its* credential rather
+ * than the default one — each collaborator is its own model.
+ */
+export async function reviewSection(
+  body: ReviewBody,
+  credential: { provider: string; model: string; apiKey: string },
+  signal?: AbortSignal,
+): Promise<ReviewSuggestion[]> {
+  const res = await fetch(`${API_BASE}/ai/review`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-AI-Provider": credential.provider,
+      "X-AI-Model": credential.model,
+      "X-AI-Api-Key": credential.apiKey,
+    },
+    credentials: "same-origin",
+    body: JSON.stringify(body),
+    signal,
+  });
+  await ensureOk(res, "The review failed");
+  return ((await res.json()) as { suggestions?: ReviewSuggestion[] }).suggestions ?? [];
 }

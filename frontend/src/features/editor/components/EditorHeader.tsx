@@ -3,8 +3,14 @@ import {
   ArrowLeft, Copy, Download, FileCode, FileDown, Printer, Redo2, Save,
   Settings2, Undo2, ListTree, Check, Sun, Moon, Link2, PenLine, BookOpen, AlertTriangle,
 } from 'lucide-react';
-import { Button, IconButton, Spinner, Input, Segmented, MenuItem, MenuLabel, MenuPanel } from '@/components/ui';
+import { Button, Chip, IconButton, Spinner, Input, Segmented, MenuItem, MenuLabel, MenuPanel } from '@/components/ui';
+import type { DocFormat } from '@/lib/types';
+import { SOURCE_EXTENSION } from '../lib/exporters';
 import { Collaborators } from '@/components/Collaborators';
+import { ProviderMark } from '@/components/ProviderTile';
+import type { AiProvider } from '@/lib/aiCredentials';
+import type { AiCollaborator } from '@/lib/types';
+import type { ReviewerStatus } from '../ai/reviewers';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { setTheme, useTheme } from '@/lib/theme';
 import type { AwarenessCursor } from '@/hooks/useYjsCollab';
@@ -16,11 +22,17 @@ import { DocStyleControls, DocStyleMenu } from './DocStyleMenu';
 
 interface Props {
   name: string;
+  /** The document's markup, shown as a chip beside its name. */
+  format: DocFormat;
   onRename: (name: string) => void;
   authorUsername: string | null;
   coAuthorUsernames: (string | null)[];
   isAuthor: boolean;
   onManageCoAuthors: () => void;
+  /** AI models on the document as reviewers, and what each is doing. */
+  aiCollaborators: AiCollaborator[];
+  aiStatuses: Record<string, ReviewerStatus>;
+  onOpenReview: () => void;
   peers: AwarenessCursor[];
   /** Where the document's save stands — the button mirrors it. */
   saveState: SaveState;
@@ -68,7 +80,8 @@ export function EditorHeader(props: Props) {
   const menuRef = useDismiss(() => setMenu('none'));
 
   const {
-    name, onRename, authorUsername, coAuthorUsernames, isAuthor, onManageCoAuthors,
+    name, format, onRename, authorUsername, coAuthorUsernames, isAuthor, onManageCoAuthors,
+    aiCollaborators, aiStatuses, onOpenReview,
     peers, saveState, onSave, onBack, onUndo, onRedo,
     surface, onSurface, options, onOptions, onExport, compact, editing, onMode, docStyle, onDocStyle,
   } = props;
@@ -78,21 +91,23 @@ export function EditorHeader(props: Props) {
      when there is not. */
   const exportItems = (
     <>
-      {/* First, because on a reading screen it is the commonest thing anyone
-          wants from this menu — and because the reading page this shell
-          absorbed had it as a button of its own, which was the only control
-          the two implementations did not share. */}
+      {/* The two files the download button exists for, first and named by
+          what they are: the typeset PDF, or the source in its own format. */}
+      <MenuLabel>Download</MenuLabel>
+      <MenuItem icon={<FileDown className="h-3.5 w-3.5" />} trailing={<span className="editor-menu-ext">.pdf</span>}
+        onClick={() => { onExport('pdf'); setMenu('none'); }}>
+        PDF document…
+      </MenuItem>
+      <MenuItem icon={<FileCode className="h-3.5 w-3.5" />} trailing={<span className="editor-menu-ext">.{SOURCE_EXTENSION[format]}</span>}
+        onClick={() => { onExport('source'); setMenu('none'); }}>
+        {format === 'latex' ? 'LaTeX source' : 'MDX source'}
+      </MenuItem>
+      <MenuLabel>Share</MenuLabel>
       <MenuItem icon={<Link2 className="h-3.5 w-3.5" />} onClick={() => { onExport('link'); setMenu('none'); }}>
         Copy link
       </MenuItem>
-      <MenuItem icon={<Download className="h-3.5 w-3.5" />} onClick={() => { onExport('source'); setMenu('none'); }}>
-        Download source
-      </MenuItem>
       <MenuItem icon={<Copy className="h-3.5 w-3.5" />} onClick={() => { onExport('copy'); setMenu('none'); }}>
-        Copy to clipboard
-      </MenuItem>
-      <MenuItem icon={<FileDown className="h-3.5 w-3.5" />} onClick={() => { onExport('pdf'); setMenu('none'); }}>
-        Export PDF…
+        Copy source to clipboard
       </MenuItem>
       <MenuItem icon={<Printer className="h-3.5 w-3.5" />} onClick={() => { onExport('print'); setMenu('none'); }}>
         Print
@@ -123,6 +138,12 @@ export function EditorHeader(props: Props) {
         <h1 className="editor-title editor-title--static">{name}</h1>
       )}
 
+      {/* What the document is written in, beside what it is called. */}
+      <Chip tone={format === 'latex' ? 'latex' : 'accent'} mono size="xs" className="editor-format"
+        title={format === 'latex' ? 'Written in LaTeX' : 'Written in MDX (Markdown)'}>
+        {format === 'latex' ? 'LaTeX' : 'MDX'}
+      </Chip>
+
       {/* The byline is prose about the document; the collaborator control is
           the part you act on. Narrow, only the second survives — a bar with
           six things in 375px has no room for "by realaryan". */}
@@ -147,6 +168,21 @@ export function EditorHeader(props: Props) {
             onManage={isAuthor ? onManageCoAuthors : undefined}
           />
         </div>
+      )}
+
+      {/* The AI collaborators, beside the people: a provider mark each, lit
+          while it reads. Opens what they suggest. */}
+      {aiCollaborators.length > 0 && (
+        <button type="button" className="editor-ais" onClick={onOpenReview}
+          title={aiCollaborators.map(ai => `${ai.name} (${ai.model})${ai.enabled ? '' : ' — paused'}`).join('\n')}
+          aria-label={`${aiCollaborators.length} AI collaborator${aiCollaborators.length === 1 ? '' : 's'} — open their suggestions`}>
+          {aiCollaborators.slice(0, 3).map(ai => (
+            <span key={ai.id} className="editor-ai" data-state={aiStatuses[ai.id]?.state ?? 'idle'}>
+              <ProviderMark provider={ai.provider as AiProvider} size="sm" />
+            </span>
+          ))}
+          {aiCollaborators.length > 3 && <span className="editor-ai editor-ai--more">+{aiCollaborators.length - 3}</span>}
+        </button>
       )}
 
       {editing && !compact && peers.length > 0 && (
@@ -291,8 +327,8 @@ export function EditorHeader(props: Props) {
               size="lg"
               active={menu === 'export'}
               onClick={() => setMenu(menu === 'export' ? 'none' : 'export')}
-              title="Export"
-              aria-label="Export"
+              title="Download and share"
+              aria-label="Download and share"
             >
               <Download className="h-4 w-4" />
             </IconButton>

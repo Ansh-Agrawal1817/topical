@@ -24,8 +24,28 @@ export interface LessonPlan {
   topics: SavedLessonTopic[];
   coAuthors?: string[];
   isPublic?: boolean;
+  /** Absent means "leave them as they are" — only the owner's dialog sends it. */
+  aiCollaborators?: AiCollaborator[];
   createdAt?: string;
   updatedAt?: string;
+}
+
+/**
+ * An AI model on a document as a reviewer. Its `id` is the id of the saved
+ * credential that runs it — which lives only in the browser of `addedBy`, so
+ * that is the one browser that can run it. Everyone sees it on the document.
+ */
+export interface AiCollaborator {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  /** How it should review: "check the maths", "keep the tone formal". */
+  instructions: string;
+  /** How often it looks at the section last touched, in seconds. */
+  intervalSeconds: number;
+  enabled: boolean;
+  addedBy?: string | null;
 }
 
 /** One branch of a generated outline. */

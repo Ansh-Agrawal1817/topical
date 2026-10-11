@@ -18,12 +18,14 @@ from ...schemas.ai import (
     GenerateSectionRequest,
     OutlineFromDocumentRequest,
     RefineOutlineRequest,
+    ReviewRequest,
     SearchTopicsRequest,
     SourcesRequest,
     TransformRequest,
 )
 from .crawl import crawl_for_topic, crawl_pages, relevant_passages, search_sources
 from .prompts import (
+    review_prompt,
     outline_from_document_prompt,
     refine_outline_prompt,
     section_prompt,
@@ -206,6 +208,7 @@ async def refine_outline(req: RefineOutlineRequest, *, credentials: AiCredential
             "title": str(row.get("title", "")).strip(),
             "kind": str(row.get("kind", "moved")).strip().lower(),
             "reason": str(row.get("reason", "")).strip(),
+            "from": str(row.get("from") or "").strip(),
         }
         for row in parsed.get("changes", [])
         if str(row.get("title", "")).strip()
@@ -301,3 +304,46 @@ async def transform(req: TransformRequest, *, credentials: AiCredentials) -> str
     if req.action == "continue":
         text = trim_echo(req.before or req.selection, text)
     return shape_fragment(text, req.format, floor=req.level)
+
+
+# ── Review ───────────────────────────────────────────────────────────────
+#: Kinds a suggestion may carry; anything else is filed as clarity.
+REVIEW_KINDS = {"error", "clarity", "grammar", "consistency", "markup"}
+
+
+async def review(req: ReviewRequest, *, credentials: AiCredentials) -> dict[str, Any]:
+    """The few changes a section needs, each anchored to text that is really there.
+
+    The model is asked to quote exactly; this keeps only the suggestions that
+    did. A quote that is not in the section cannot be found to replace, a
+    replacement equal to its quote changes nothing, and a quote already raised
+    is a repeat — all three are dropped here rather than shown.
+    """
+    parsed = await _json_answer(
+        review_prompt(
+            req.format, req.title or "", req.section, req.text, req.outline or "", req.instructions or "", req.seen,
+        ),
+        credentials,
+        _parse_json_object,
+    )
+    seen = {q.strip() for q in req.seen}
+    out: list[dict[str, str]] = []
+    for row in parsed.get("suggestions", []) or []:
+        if not isinstance(row, dict):
+            continue
+        quote = str(row.get("quote", ""))
+        replacement = str(row.get("replacement", ""))
+        if not quote.strip() or quote not in req.text or quote.strip() in seen:
+            continue
+        if replacement.strip() == quote.strip():
+            continue
+        kind = str(row.get("kind", "clarity")).strip().lower()
+        out.append({
+            "quote": quote,
+            "replacement": replacement,
+            "kind": kind if kind in REVIEW_KINDS else "clarity",
+            "reason": str(row.get("reason", "")).strip()[:300],
+        })
+        if len(out) == 3:
+            break
+    return {"suggestions": out}

@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Clock, RotateCcw, SkipForward, X } from 'lucide-react';
+import { AlertTriangle, Check, Clock, RotateCcw, SkipForward, Trash2, X } from 'lucide-react';
 import { Button, IconButton, Spinner } from '@/components/ui';
 import { isActive, useAiJobs, useSecondTick, type AiQueue, type Job } from './queue';
 
@@ -42,9 +42,13 @@ function JobRow({ job, queue }: { job: Job; queue: AiQueue }) {
             <RotateCcw className="h-3 w-3" />
           </IconButton>
         )}
-        {isActive(job) && (
+        {isActive(job) ? (
           <IconButton size="sm" tone="danger" onClick={() => queue.cancel(job.id)} title="Cancel" aria-label={`Cancel ${job.label}`}>
             <X className="h-3 w-3" />
+          </IconButton>
+        ) : (
+          <IconButton size="sm" onClick={() => queue.remove(job.id)} title="Remove from the list" aria-label={`Remove ${job.label} from the list`}>
+            <Trash2 className="h-3 w-3" />
           </IconButton>
         )}
       </span>
@@ -73,7 +77,7 @@ export function QueuePanel({ queue }: { queue: AiQueue }) {
   return (
     <div className="ai-queue">
       <ol className="ai-jobs">
-        {[...active, ...finished.slice(-6).reverse()].map(job => <JobRow key={job.id} job={job} queue={queue} />)}
+        {[...active, ...finished.slice(-12).reverse()].map(job => <JobRow key={job.id} job={job} queue={queue} />)}
       </ol>
       <div className="ai-queue-foot">
         {active.length > 0 && (

@@ -288,22 +288,53 @@ export function addSectionAfter(
 
 
 /**
+ * Which existing section each row of a proposed outline is.
+ *
+ * A row is the section with its exact title, if there is one nobody else has
+ * claimed; failing that, the section it says it was renamed or split `from`.
+ * Titles are matched first, across the whole plan, so a rename cannot take a
+ * heading that a later row keeps under its own name. What no row claims is
+ * what the proposal removes.
+ */
+export function matchPlan(
+  labels: string[],
+  plan: { title: string; from?: string }[],
+): { sources: number[]; dropped: number[] } {
+  const key = (text: string) => headingLabel(text).trim().toLowerCase();
+  const keys = labels.map(key);
+  const used = new Set<number>();
+  const claim = (wanted: string) => {
+    const i = wanted ? keys.findIndex((k, j) => !used.has(j) && k === wanted) : -1;
+    if (i >= 0) used.add(i);
+    return i;
+  };
+  const sources = plan.map(item => claim(key(item.title)));
+  plan.forEach((item, at) => {
+    if (sources[at] < 0 && item.from) sources[at] = claim(key(item.from));
+  });
+  const dropped = keys.map((_, j) => j).filter(j => !used.has(j));
+  return { sources, dropped };
+}
+
+/**
  * Rewrite the document so its headings match a proposed outline.
  *
- * Each section's own prose travels with its heading — "own" meaning up to the
- * next heading of any level, since every child is emitted separately by the
- * plan and would otherwise be written twice.
+ * A section the proposal keeps — by title, or by the title it was renamed
+ * from — keeps its own prose ("own" meaning up to the next heading of any
+ * level, since every child is a row of its own). A new section arrives
+ * empty. A section the proposal leaves out is removed with its prose: the
+ * proposal shows which before it is applied, and an applied outline is one
+ * undo away.
  *
- * Sections the plan drops are **not** deleted. They are kept, in their
- * original order, after the restructured document and reported back so the
- * caller can say so. A restructure that silently discards paragraphs is not
- * something a writer can accept without reading the whole page first.
+ * Moving dropped sections to the end instead, as this used to, left every
+ * renamed section on the page twice — once empty under its new name, once
+ * full under the old one at the bottom.
  */
 export function applyOutline(
   content: string,
   format: DocFormat,
-  plan: { title: string; level: number }[],
-): { result: EditResult; orphans: string[] } {
+  plan: { title: string; level: number; from?: string }[],
+): { result: EditResult; removed: string[] } {
   const headings = rawHeadings(content, format);
 
   // Anything above the first heading belongs to the document, not a section.
@@ -313,30 +344,17 @@ export function applyOutline(
     (i + 1 < headings.length ? headings[i + 1].lineStart : content.length);
   const bodyOf = (i: number) => content.slice(headings[i].lineEnd, ownBodyEnd(i)).trim();
 
-  const used = new Set<number>();
-  const blocks = plan
-    .filter(item => item.title.trim())
-    .map(item => {
-      const wanted = headingLabel(item.title).toLowerCase();
-      // Matched on the label the rail shows, not the raw source: a proposal
-      // carries `Bold heading`, the document holds `## **Bold** heading`, and
-      // comparing those directly orphaned the section and duplicated it.
-      const i = headings.findIndex(
-        (h, j) => !used.has(j) && headingLabel(h.title).toLowerCase() === wanted,
-      );
-      if (i >= 0) used.add(i);
-      const body = i >= 0 ? bodyOf(i) : '';
-      const heading = headingMarkup(item.title.trim(), item.level, format);
-      return body ? `${heading}\n\n${body}` : heading;
-    });
+  const rows = plan.filter(item => item.title.trim());
+  const { sources, dropped } = matchPlan(headings.map(h => h.title), rows);
+  const blocks = rows.map((item, at) => {
+    const i = sources[at];
+    const body = i >= 0 ? bodyOf(i) : '';
+    const heading = headingMarkup(item.title.trim(), item.level, format);
+    return body ? `${heading}\n\n${body}` : heading;
+  });
+  const removed = dropped.map(j => headingLabel(headings[j].title)).filter(Boolean);
 
-  const leftOver = headings
-    .map((_, j) => j)
-    .filter(j => !used.has(j) && (headings[j].title.trim() || bodyOf(j)));
-  const orphans = leftOver.map(j => headingLabel(headings[j].title)).filter(Boolean);
-  const orphanBlocks = leftOver.map(j => content.slice(headings[j].lineStart, ownBodyEnd(j)).trim());
-
-  const next = [preamble, ...blocks, ...orphanBlocks].filter(Boolean).join('\n\n') + '\n';
+  const next = [preamble, ...blocks].filter(Boolean).join('\n\n') + '\n';
   const caret = Math.min(preamble.length, next.length);
-  return { result: { content: next, start: caret, end: caret }, orphans };
+  return { result: { content: next, start: caret, end: caret }, removed };
 }

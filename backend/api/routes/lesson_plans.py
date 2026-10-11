@@ -17,7 +17,9 @@ from ...schemas.lesson_plan import (
     LessonPlanOut,
     SharedLessonPlan,
 )
+from ...schemas.version import VersionCreated, VersionDetail, VersionInput, VersionList, VersionOut, VersionRename
 from ...services import lesson_plans as service
+from ...services import versions
 from ..deps import CurrentUser, Db, MaybeUser, RowId
 
 router = APIRouter(tags=["lesson-plans"])
@@ -63,4 +65,37 @@ async def replace(
 async def remove(plan_id: RowId, db: Db, user: CurrentUser) -> Response:
     """Owner only: a co-author may edit a document but not destroy it."""
     await service.remove(db, plan_id, user.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ── History ─────────────────────────────────────────────────────────────────
+# Snapshots of the document's text. Everyone who may write the document may
+# read, name, take and delete them; a reader of a published document may not.
+
+
+@router.get("/{plan_id}/versions", response_model=VersionList)
+async def list_versions(plan_id: RowId, db: Db, user: CurrentUser) -> VersionList:
+    return VersionList(versions=await versions.list_versions(db, plan_id, user.id))
+
+
+@router.get("/{plan_id}/versions/{version_id}", response_model=VersionDetail)
+async def get_version(plan_id: RowId, version_id: RowId, db: Db, user: CurrentUser) -> VersionOut:
+    return await versions.get_version(db, plan_id, version_id, user.id)
+
+
+@router.post("/{plan_id}/versions", response_model=VersionCreated)
+async def take_version(plan_id: RowId, payload: VersionInput, db: Db, user: CurrentUser) -> VersionCreated:
+    return VersionCreated(version=await versions.take(db, plan_id, payload, user.id))
+
+
+@router.patch("/{plan_id}/versions/{version_id}", response_model=VersionOut)
+async def rename_version(
+    plan_id: RowId, version_id: RowId, payload: VersionRename, db: Db, user: CurrentUser
+) -> VersionOut:
+    return await versions.rename(db, plan_id, version_id, payload.name, user.id)
+
+
+@router.delete("/{plan_id}/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_version(plan_id: RowId, version_id: RowId, db: Db, user: CurrentUser) -> Response:
+    await versions.remove(db, plan_id, version_id, user.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
