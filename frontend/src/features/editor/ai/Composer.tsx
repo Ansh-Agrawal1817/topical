@@ -2,6 +2,7 @@ import { forwardRef, useImperativeHandle, useRef } from 'react';
 import { CornerDownLeft } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { GhostField, type GhostFieldHandle } from '@/components/GhostField';
 
 /** A one-click addition to the instruction: a short label, the sentence it adds. */
 export interface Suggestion {
@@ -26,6 +27,11 @@ interface Props {
   /** The whole composer is off — a request is in flight. */
   disabled?: boolean;
   suggestions?: Suggestion[];
+  /**
+   * Whole instructions offered in the field as you type, Tab to take one.
+   * Defaults to the suggestions' own sentences.
+   */
+  completions?: string[];
   /** The left of the footer: what the request will read, or a second way in. */
   footer?: React.ReactNode;
   /** Above the field, inside the card: what the request acts on. */
@@ -59,10 +65,11 @@ const holds = (value: string, text: string) => value.includes(text.trim());
  */
 export const Composer = forwardRef<ComposerHandle, Props>(function Composer({
   value, onChange, onSubmit, placeholder, label, submitLabel, submitIcon, submitDisabled, loading, disabled,
-  suggestions, footer, header, rows = 2, className,
+  suggestions, completions, footer, header, rows = 2, className,
 }, ref) {
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<GhostFieldHandle>(null);
   useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }), []);
+  const offered = completions ?? (suggestions ?? []).filter(s => !s.unfinished).map(s => s.text.trim());
 
   const toggle = (s: Suggestion) => {
     const text = s.text.trim();
@@ -74,7 +81,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({
     }
     onChange(next);
     requestAnimationFrame(() => {
-      const el = inputRef.current;
+      const el = inputRef.current?.element();
       if (!el) return;
       el.focus();
       el.setSelectionRange(next.length, next.length);
@@ -98,15 +105,16 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({
         }}
       >
         {header && <div className="ai-composer-head">{header}</div>}
-        <textarea
+        <GhostField
           ref={inputRef}
-          className="ai-composer-input"
+          fieldClassName="ai-composer-input"
+          completions={offered}
           rows={rows}
           aria-label={label}
           placeholder={placeholder}
           value={value}
           disabled={disabled}
-          onChange={event => onChange(event.target.value)}
+          onChange={onChange}
           onKeyDown={event => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();

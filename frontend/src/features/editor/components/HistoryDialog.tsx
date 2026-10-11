@@ -8,6 +8,8 @@ import { confirmAction } from '@/lib/confirm';
 import { errorMessage } from '@/lib/utils';
 import { Button, Dialog, DialogContent, DialogDescription, DialogTitle, IconButton, Spinner } from '@/components/ui';
 import { diffCounts, lineDiff, type DiffLine } from '../lib/lineDiff';
+import { GhostField } from '@/components/GhostField';
+import { snapshotNames } from '../ai/completions';
 
 interface Props {
   open: boolean;
@@ -210,10 +212,13 @@ export function HistoryDialog({ open, onOpenChange, planId, readContent, onResto
         <div className="history-body">
           <div className="history-side">
             <form className="history-snap" onSubmit={event => { event.preventDefault(); void snapshot(); }}>
-              <input
-                className="history-snap-input"
+              <GhostField
+                as="input"
+                className="history-snap-field"
+                fieldClassName="history-snap-input"
+                completions={snapshotNames()}
                 value={snapName}
-                onChange={event => setSnapName(event.target.value)}
+                onChange={setSnapName}
                 placeholder="Name this version (optional)"
                 aria-label="Name for the new snapshot"
                 maxLength={120}

@@ -2,9 +2,6 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { UserPlus, Users, X } from 'lucide-react';
 import { searchUsername } from '@/lib/api';
-import type { AiCollaborator } from '@/lib/types';
-import type { ReviewerStatus } from '../ai/reviewers';
-import { AiCollaboratorsSection } from './AiCollaboratorsSection';
 import { Avatar, IconButton, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, SearchField, Text, Stack, Heading, ListRow } from '@/components/ui';
 
 interface Props {
@@ -14,16 +11,10 @@ interface Props {
   coAuthorUsernames: (string | null)[];
   /** Usernames are positional against `ids`, and null where unset. */
   onChange: (ids: string[], usernames: (string | null)[]) => void;
-  aiCollaborators: AiCollaborator[];
-  onAiChange: (next: AiCollaborator[]) => void;
-  myId?: string;
-  statuses: Record<string, ReviewerStatus>;
 }
 
 /** Add people who can open and edit this document live. */
-export function CoAuthorsDialog({
-  open, onOpenChange, coAuthors, coAuthorUsernames, onChange, aiCollaborators, onAiChange, myId, statuses,
-}: Props) {
+export function CoAuthorsDialog({ open, onOpenChange, coAuthors, coAuthorUsernames, onChange }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<{ id: string; username: string }[]>([]);
 
@@ -52,13 +43,13 @@ export function CoAuthorsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent material="solid" size="md" className="share-dialog">
+      <DialogContent material="solid" size="sm">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Users className="h-4 w-4" /> Share this document
           </DialogTitle>
           <DialogDescription>
-            People see your cursor and edits as they happen; AI collaborators review the section being written.
+            Collaborators see your cursor and edits as they happen.
           </DialogDescription>
         </DialogHeader>
 
@@ -117,8 +108,6 @@ export function CoAuthorsDialog({
             </Stack>
           )}
         </div>
-
-        <AiCollaboratorsSection collaborators={aiCollaborators} onChange={onAiChange} myId={myId} statuses={statuses} />
       </DialogContent>
     </Dialog>
   );

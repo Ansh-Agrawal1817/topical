@@ -635,3 +635,49 @@
   color: var(--accent-600);
   background: var(--accent-soft);
 }
+
+/* ── GhostField (components/GhostField.tsx) ──
+   A suggestion in faded text where the words would go; Tab writes it in.
+   The mirror wears the field's classes and is the box — it sets the height,
+   so the field grows to fit a suggestion. The real field sits over it,
+   transparent, carrying the text and the caret. */
+.ghost-field { position: relative; display: block; min-width: 0; }
+.ghost-mirror {
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+  color: transparent;
+}
+.ghost-field[data-kind='input'] .ghost-mirror { white-space: pre; }
+.ghost-field > .ghost-input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  resize: none;
+}
+.ghost-typed { color: transparent; }
+.ghost-text { color: var(--ink-ghost); }
+.ghost-key {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  vertical-align: 1px;
+  color: var(--ink-faint);
+  background: var(--surface);
+}
+/* The box underneath draws the focus; the transparent field's own ring would be a second. */
+.ghost-field > .ghost-input:focus-visible { outline: none; }

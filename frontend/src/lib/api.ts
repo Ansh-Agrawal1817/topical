@@ -2,6 +2,7 @@ import { queryOptions } from "@tanstack/react-query";
 import type { AiCollaborator, DocFormat, LessonPlan } from "@/lib/types";
 import { getDefaultCredential, type AiProvider } from "@/lib/aiCredentials";
 import { AiKeyDeclined, requestAiKey } from "@/lib/aiKeyGate";
+import { reportRejection, type AiRejection } from "@/lib/aiRejection";
 
 /**
  * The HTTP client every call in this file goes through.
@@ -61,11 +62,21 @@ function aiHeaders(): Record<string, string> {
  * a bare Error message could only be guessed from.
  */
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number, readonly retryAfterSeconds?: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryAfterSeconds?: number,
+    /** Set when the AI provider itself refused the request (see `lib/aiRejection`). */
+    readonly rejection?: AiRejection,
+  ) {
     super(message);
     this.name = "ApiError";
   }
 }
+
+/** Whether this failure is a refusal from the AI provider — shown as a dialog, not a toast. */
+export const isRejection = (error: unknown): error is ApiError & { rejection: AiRejection } =>
+  error instanceof ApiError && !!error.rejection;
 
 /** Throw a descriptive ApiError if a response isn't OK; otherwise return it. */
 async function ensureOk(res: Response, message: string): Promise<Response> {
@@ -76,9 +87,11 @@ async function ensureOk(res: Response, message: string): Promise<Response> {
   // surface that sentence rather than the raw JSON, which used to be shown to
   // users verbatim.
   let detail = body;
+  let rejection: AiRejection | undefined;
   try {
     const parsed = JSON.parse(body);
     detail = parsed?.error || parsed?.detail || body;
+    if (parsed?.rejection?.kind) rejection = parsed.rejection as AiRejection;
   } catch {
     // Not JSON — use the body as-is.
   }
@@ -87,6 +100,7 @@ async function ensureOk(res: Response, message: string): Promise<Response> {
     detail || `${message} (${res.status} ${res.statusText})`,
     res.status,
     Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+    rejection,
   );
 }
 
@@ -110,7 +124,21 @@ async function request(path: string, options: RequestOptions): Promise<Response>
     credentials: "same-origin",
   });
 
-  return ensureOk(res, failure);
+  return ai ? reportingRejections(res, failure) : ensureOk(res, failure);
+}
+
+/**
+ * `ensureOk` for a model request: a refusal from the provider is also
+ * reported to the rejection dialog. Key checks in Settings do not come
+ * through here — they show their own answer beside the field.
+ */
+async function reportingRejections(res: Response, failure: string): Promise<Response> {
+  try {
+    return await ensureOk(res, failure);
+  } catch (error) {
+    if (isRejection(error)) reportRejection(error.rejection, error.message);
+    throw error;
+  }
 }
 
 /** A request whose body is JSON. */
@@ -697,6 +725,6 @@ export async function reviewSection(
     body: JSON.stringify(body),
     signal,
   });
-  await ensureOk(res, "The review failed");
+  await reportingRejections(res, "The review failed");
   return ((await res.json()) as { suggestions?: ReviewSuggestion[] }).suggestions ?? [];
 }

@@ -3,6 +3,8 @@ import { BookMarked, ExternalLink, GitFork, Library, Link2, PanelRightClose, Shi
 import { IconButton } from '@/components/ui';
 import type { DocFormat } from '@/lib/types';
 import { collectReferences, hostOf, type Reference } from '../lib/references';
+import type { ShelfPhase } from '../hooks/useShelfSwap';
+import { SideResize } from './SideResize';
 
 /**
  * What the Sources panel is for, and is not yet. Listed so the panel says
@@ -35,6 +37,11 @@ interface Props {
   onJump: (offset: number) => void;
   onClose: () => void;
   compact?: boolean;
+  /** Shared with the AI panel: the right-hand column is one width. */
+  width: number;
+  onWidth: (next: number) => void;
+  phase?: ShelfPhase;
+  onAnimationEnd?: (event: React.AnimationEvent) => void;
 }
 
 /**
@@ -45,7 +52,7 @@ interface Props {
  * each with where it is used. Claims, provenance and fact-checking come next
  * and are listed as such.
  */
-export function SourcesPanel({ content, format, onJump, onClose, compact }: Props) {
+export function SourcesPanel({ content, format, onJump, onClose, compact, width, onWidth, phase, onAnimationEnd }: Props) {
   const references = useMemo(() => collectReferences(content, format), [content, format]);
   const groups = (['link', 'citation', 'footnote'] as const)
     .map(kind => ({ kind, items: references.filter(ref => ref.kind === kind) }))
@@ -53,7 +60,10 @@ export function SourcesPanel({ content, format, onJump, onClose, compact }: Prop
   const hosts = new Set(references.filter(ref => ref.kind === 'link').map(ref => hostOf(ref.target))).size;
 
   return (
-    <aside className="ai-side sources-side" data-drawer={compact || undefined} aria-label="Sources">
+    <aside className="ai-side sources-side" data-drawer={compact || undefined} aria-label="Sources"
+      data-phase={phase} onAnimationEnd={onAnimationEnd}
+      style={compact ? undefined : { width }}>
+      {!compact && <SideResize width={width} onWidth={onWidth} label="Resize the sources panel" />}
       <header className="side-head">
         <BookMarked className="side-head-icon h-4 w-4" aria-hidden="true" />
         <h2 className="side-head-title">Sources</h2>

@@ -16,8 +16,8 @@ import { ReviewPanel } from './ReviewPanel';
 import type { AiReviewers, Suggestion } from './reviewers';
 import type { AiCollaborator } from '@/lib/types';
 import { isActive, useAiJobs, useSecondTick, type AiQueue, type Job } from './queue';
-import { useDragResize } from '../hooks/useDragResize';
-import { MAX_AI_WIDTH, MIN_AI_WIDTH } from '../lib/viewOptions';
+import { SideResize } from '../components/SideResize';
+import type { ShelfPhase } from '../hooks/useShelfSwap';
 import type { ContextShelf } from './shelf';
 
 export type AiTab = 'outline' | 'write' | 'refine' | 'review' | 'context';
@@ -81,7 +81,7 @@ function queueSummary(jobs: Job[]): { text: string; state: 'idle' | 'busy' | 'fa
 export function AiPanel({
   queue, shelf, subject, selection, content, format, title, outline, onReplace, onInsertAfter, onApplyOutline,
   focusSignal, request, onClose, compact, writer, wordsOf, onJump, width, onWidth,
-  aiCollaborators, reviewers, onManageAi, onLocateSuggestion,
+  aiCollaborators, reviewers, onManageAi, onLocateSuggestion, phase, onAnimationEnd,
 }: {
   writer: SectionWriter;
   wordsOf: (node: OutlineNode) => number;
@@ -111,6 +111,9 @@ export function AiPanel({
   /** Open the dialog where AI collaborators are added. Absent for anyone but the owner. */
   onManageAi?: () => void;
   onLocateSuggestion: (suggestion: Suggestion) => void;
+  /** Sliding in or out of the right-hand column (see `useShelfSwap`). */
+  phase?: ShelfPhase;
+  onAnimationEnd?: (event: React.AnimationEvent) => void;
 }) {
   const jobs = useAiJobs(queue);
   const [tab, setTabState] = useState<AiTab>(loadTab);
@@ -155,17 +158,6 @@ export function AiPanel({
   const openContext = useCallback(() => setTab('context'), [setTab]);
   const openOutline = useCallback(() => setTab('outline'), [setTab]);
 
-  const clampWidth = (next: number) => Math.min(Math.max(Math.round(next), MIN_AI_WIDTH), MAX_AI_WIDTH);
-  // The handle is on the panel's left edge, so dragging left widens it.
-  const startResize = useDragResize({ from: () => width, to: (dx, start) => clampWidth(start - dx), onChange: onWidth });
-  const resizeKeys = (event: React.KeyboardEvent) => {
-    const step = event.shiftKey ? 64 : 16;
-    const next = event.key === 'ArrowLeft' ? width + step : event.key === 'ArrowRight' ? width - step : null;
-    if (next === null) return;
-    event.preventDefault();
-    onWidth(clampWidth(next));
-  };
-
   const active = jobs.filter(isActive).length;
   const summary = queueSummary(jobs);
   const credential = getDefaultCredential();
@@ -173,13 +165,9 @@ export function AiPanel({
 
   return (
     <aside className="ai-side" data-drawer={compact || undefined} aria-label="AI"
+      data-phase={phase} onAnimationEnd={onAnimationEnd}
       style={compact ? undefined : { width }}>
-      {!compact && (
-        <div className="ai-resize" onMouseDown={startResize} onKeyDown={resizeKeys} onDoubleClick={() => onWidth(348)}
-          role="separator" aria-orientation="vertical" aria-label="Resize the AI panel" tabIndex={0}
-          aria-valuemin={MIN_AI_WIDTH} aria-valuemax={MAX_AI_WIDTH} aria-valuenow={width}
-          title="Drag to resize · double-click to reset" />
-      )}
+      {!compact && <SideResize width={width} onWidth={onWidth} label="Resize the AI panel" />}
       <header className="side-head">
         <Sparkles className="side-head-icon side-head-icon--accent h-4 w-4" aria-hidden="true" />
         <h2 className="side-head-title">AI</h2>

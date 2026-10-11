@@ -1,3 +1,4 @@
+import { WRITE_COMPLETIONS } from './completions';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Clock, ListTree, PenLine, Sparkles, Square, X } from 'lucide-react';
 import { Button, Progress, Spinner } from '@/components/ui';
@@ -138,6 +139,7 @@ export function WritePanel({
           onChange={setInstruction}
           onSubmit={runSingle}
           suggestions={ASKS}
+          completions={WRITE_COMPLETIONS}
           submitDisabled={singleState === 'queued' || singleState === 'generating'}
           submitIcon={<Sparkles className="h-3 w-3" aria-hidden="true" />}
           submitLabel={singleState === 'queued' || singleState === 'generating' ? 'In the queue' : singleWords ? 'Rewrite section' : 'Write section'}
@@ -179,6 +181,7 @@ export function WritePanel({
             onChange={setInstruction}
             onSubmit={runAll}
             suggestions={ASKS}
+            completions={WRITE_COMPLETIONS}
             submitDisabled={!list.length}
             submitIcon={<Sparkles className="h-3 w-3" aria-hidden="true" />}
             submitLabel={scope === 'missing' ? `Write ${plural(list.length, 'section')}` : `Rewrite ${plural(list.length, 'section')}`}

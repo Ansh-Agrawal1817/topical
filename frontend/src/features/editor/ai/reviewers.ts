@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { ApiError, reviewSection, type ReviewSuggestion } from '@/lib/api';
+import { ApiError, isRejection, reviewSection, type ReviewSuggestion } from '@/lib/api';
 import { getCredentials, type AiCredential } from '@/lib/aiCredentials';
 import type { AiCollaborator, DocFormat } from '@/lib/types';
 import { errorMessage } from '@/lib/utils';
@@ -197,11 +197,15 @@ export function useAiReviewers({
         backoff.current.set(id, { until: Date.now() + delay, step });
         setStatus(id, { state: 'waiting', detail: `Rate limited — trying again in ${Math.ceil(delay / 1000)}s` });
       } else {
-        // A rejected key or a refused request will not fix itself by asking again soon.
-        backoff.current.set(id, { until: Date.now() + MAX_BACKOFF_MS, step });
+        // A rejected key or a refused request will not fix itself by asking
+        // again. A provider refusal stops this reviewer until its settings
+        // change (and has already been shown as a dialog); anything else
+        // waits the longest backoff and says why.
+        const refused = isRejection(error);
+        backoff.current.set(id, { until: refused ? Infinity : Date.now() + MAX_BACKOFF_MS, step });
         const message = errorMessage(error, 'The review failed');
         setStatus(id, { state: 'error', detail: message });
-        if (step === 1) toast.error(`${collaborator.name} could not review`, { description: message });
+        if (step === 1 && !refused) toast.error(`${collaborator.name} could not review`, { description: message });
       }
     } finally {
       busy.current.delete(id);

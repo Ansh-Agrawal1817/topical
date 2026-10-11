@@ -6,6 +6,7 @@ per-format differences live in `SECTION_FORMATS`, so a wording change cannot
 land in MDX and be forgotten in LaTeX.
 """
 
+import re
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -383,31 +384,62 @@ def topic_hierarchy_prompt(query: str) -> str:
     )
 
 
-def _headings_of(document: str) -> str:
-    """Every heading line in a document, in order — its existing shape, whatever its length."""
-    lines = []
+_HEADING_LINE = re.compile(
+    r"^\s*(#{1,6}\s+\S|\\(?:chapter|section|subsection|subsubsection|paragraph)\*?\s*\{)"
+)
+
+#: A draft at most this long is sent whole; a longer one as its digest.
+DRAFT_WHOLE_CHARS = 8000
+#: How much of each section's own prose the digest keeps.
+DRAFT_OPENING_WORDS = 30
+
+
+def _draft_digest(document: str) -> str:
+    """The whole draft in brief: every heading, each followed by its opening words.
+
+    A long draft used to be cut at 12,000 characters, so the model planned an
+    outline from its first quarter and never saw the rest. The digest keeps
+    the shape of all of it — every heading in order, and enough of each
+    section's prose to tell what it is about — in a fraction of the space.
+    """
+    out: List[str] = []
+    body: List[str] = []
+
+    def flush() -> None:
+        words = " ".join(body).split()
+        if words:
+            more = " …" if len(words) > DRAFT_OPENING_WORDS else ""
+            out.append("    " + " ".join(words[:DRAFT_OPENING_WORDS]) + more)
+        body.clear()
+
     for line in document.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("#") or stripped.startswith("\\section") or stripped.startswith("\\subsection") \
-                or stripped.startswith("\\subsubsection") or stripped.startswith("\\chapter"):
-            lines.append(stripped)
-    return "\n".join(lines[:200])
+        if _HEADING_LINE.match(line):
+            flush()
+            out.append(line.strip())
+        elif line.strip():
+            body.append(line.strip())
+    flush()
+    return "\n".join(out)
 
 
 def outline_from_document_prompt(document: str, fmt: str) -> str:
     """Reverse-engineer a working outline from a draft the user already has.
 
-    A long draft is cut to its first 12,000 characters, so its headings are
-    sent separately and in full: the model sees the whole of the existing
-    structure even when it only reads the start of the prose.
+    A short draft is sent whole. A long one is sent as its digest — every
+    heading, with the opening words of each section — so the model plans
+    from all of the draft rather than from however much fitted.
     """
-    headings = _headings_of(document)
-    shape = f"\nIts headings so far, in order:\n<headings>\n{headings}\n</headings>\n" if headings else ""
+    whole = len(document) <= DRAFT_WHOLE_CHARS
+    material = (
+        f"<document>\n{document}\n</document>\n" if whole else
+        "The draft is long, so here it is in brief — every heading in order, each followed by the "
+        "opening words of its prose:\n"
+        f"<draft>\n{_draft_digest(document)}\n</draft>\n"
+    )
     return (
         "Read this draft and propose the outline it is reaching for — keeping the sections that work, "
         "in their order, and adding the ones it is missing.\n\n"
-        f"<document>\n{document[:12000]}\n</document>\n"
-        f"{shape}\n"
+        f"{material}\n"
         "Return ONLY valid JSON in this format:\n"
         f"{_NESTED_JSON_SHAPE}\n"
         "Rules: 3-6 main sections, 2-4 subtopics each; follow the draft's own vocabulary; keep names "

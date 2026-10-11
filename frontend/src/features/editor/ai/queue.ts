@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { ApiError } from '@/lib/api';
 import { isAiKeyDeclined } from '@/lib/aiKeyGate';
+import { BLOCKS_THE_LINE, noteStopped } from '@/lib/aiRejection';
 import { errorMessage } from '@/lib/utils';
 
 /**
@@ -151,6 +152,18 @@ export function createAiQueue(): AiQueue {
             continue;
           }
           const reason = errorMessage(error, 'The request failed');
+          if (error instanceof ApiError && error.rejection && BLOCKS_THE_LINE.has(error.rejection.kind)) {
+            // A rejected key or a missing model fails every job behind this
+            // one the same way: stop them, and say so in the dialog.
+            update(entry, { status: 'failed', finishedAt: Date.now(), reason });
+            entry.on?.fail?.(error);
+            settle.get(entry.job.id)?.reject(error);
+            const waiting = entries.filter(e => e !== entry && ['queued', 'retrying'].includes(e.job.status));
+            waiting.forEach(stop);
+            publish();
+            noteStopped(waiting.length);
+            continue;
+          }
           if (isRetryable(error)) {
             // The provider's own "try again in N s" wins over the guess, plus
             // a little slack so the next attempt lands after its window opens.

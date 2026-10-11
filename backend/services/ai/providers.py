@@ -367,6 +367,27 @@ _PROVIDER_ERRORS: List[tuple] = [
 ]
 
 
+#: Statuses that mean the provider refused the request itself — not busy, not
+#: unreachable — and the kind of refusal each is, for the client's dialog.
+_REJECTION_KINDS = {401: "auth", 403: "access", 404: "model", 413: "too-long", 422: "policy", 400: "bad-request"}
+
+_PROVIDER_MESSAGE = re.compile(r"""["']message["']\s*:\s*["']((?:[^"'\\]|\\.){4,})["']""")
+
+
+def _provider_reason(exc: Exception) -> str:
+    """The provider's own words, as short as they can be made.
+
+    litellm wraps them as "litellm.BadRequestError: XException - {...json...}";
+    the JSON's ``message`` is the sentence a person can act on. Capped, and
+    cut to one line — it can echo part of the request.
+    """
+    text = getattr(exc, "message", None) or str(exc)
+    found = _PROVIDER_MESSAGE.search(text)
+    reason = found.group(1) if found else text.rsplit(" - ", 1)[-1]
+    reason = re.sub(r"^(?:litellm\.\w+:\s*)+", "", reason)
+    return " ".join(reason.split())[:400]
+
+
 def _describe(exc: Exception, creds: Optional[AiCredentials]) -> Optional[tuple]:
     """Map a provider exception to (status, user-facing message), or None."""
     provider = creds.spec.name if creds else "The AI provider"
@@ -410,7 +431,16 @@ def endpoint(func):
                     if wait:
                         headers = {"Retry-After": str(wait)}
                         message = f"{creds.spec.name if creds else 'The provider'} is rate-limiting your key; it asks to wait {wait}s."
-                raise AppError(message, status, headers=headers)
+                extra = None
+                kind = _REJECTION_KINDS.get(status)
+                if kind:
+                    extra = {"rejection": {
+                        "kind": kind,
+                        "provider": creds.spec.name if creds else "The AI provider",
+                        "model": creds.model if creds else "",
+                        "reason": _provider_reason(e),
+                    }}
+                raise AppError(message, status, headers=headers, extra=extra)
             logger.exception("%s failed unexpectedly", func.__name__)
             raise AppError("Content generation failed unexpectedly. Please try again.", 500)
     return wrapper

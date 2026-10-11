@@ -47,5 +47,25 @@ export const AI_ACTIONS: AiAction[] = [
   { id: 'custom', label: 'Custom instruction…', hint: 'Tell it exactly what to do', icon: MessageSquare, replaces: true, worksOnCaret: true },
 ];
 
-/** How much surrounding text to send as context on either side of a passage. */
-export const CONTEXT_CHARS = 1200;
+/**
+ * At most this much of the text either side of a passage goes with an edit,
+ * cut back to whole paragraphs — the neighbouring sentences set the voice
+ * and the thread; a page of them only dilutes the request.
+ */
+export const CONTEXT_CHARS = 800;
+
+/** The text just before `at`, up to `chars`, starting at a paragraph where one falls inside. */
+export function textBefore(content: string, at: number, chars = CONTEXT_CHARS): string {
+  const window = content.slice(Math.max(0, at - chars), at);
+  if (at - chars <= 0) return window;
+  const cut = window.indexOf('\n\n');
+  return cut >= 0 && cut < window.length - 120 ? window.slice(cut + 2) : window;
+}
+
+/** The text just after `at`, up to `chars`, ending at a paragraph break where one falls inside. */
+export function textAfter(content: string, at: number, chars = CONTEXT_CHARS): string {
+  const window = content.slice(at, at + chars);
+  if (at + chars >= content.length) return window;
+  const cut = window.lastIndexOf('\n\n');
+  return cut > 120 ? window.slice(0, cut) : window;
+}

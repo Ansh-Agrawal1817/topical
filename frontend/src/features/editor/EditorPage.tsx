@@ -25,6 +25,8 @@ import { CoAuthorsDialog } from './components/CoAuthorsDialog';
 import { ImageDialog } from './components/ImageDialog';
 import { HistoryDialog } from './components/HistoryDialog';
 import { SourcesPanel } from './components/SourcesPanel';
+import { useShelfSwap } from './hooks/useShelfSwap';
+import { anchorFromOffset, anchorFromPreview, offsetFromAnchor, scrollPreviewTo, type ReadingAnchor } from './lib/readingPosition';
 import { LiveEditor, type LiveEditorHandle, type SurfaceMode } from './live/LiveEditor';
 import { activeNode, buildOutline, type OutlineNode } from './lib/outline';
 import { indexOutline, sectionWords, subtreeSpan } from './lib/tree';
@@ -100,6 +102,7 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
   const doc = useDocument(user?.username || user?.given_name || 'Anonymous', plan, editing);
 
   const editorRef = useRef<LiveEditorHandle>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef('');
   const surfaceRef = useRef<HTMLDivElement>(null);
 
@@ -141,6 +144,7 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
   const [showShare, setShowShare] = useState(false);
   const [showImage, setShowImage] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [aiPopOpen, setAiPopOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
 
   // The palette can reach the shortcut sheet, which only the editor owns.
@@ -354,10 +358,17 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
     [doc.format],
   );
 
-  /** File a generated section under its own heading, or append it. */
+  /**
+   * File a generated section under its own heading, or append it — without
+   * moving the writer: the caret stays put and the page does not scroll to
+   * the section that just landed (see `keepView`).
+   */
   const insertSection = useCallback((text: string, title: string, replace = false, near?: number) => {
-    editSections(placeSection, title, text, replace, near);
-  }, [editSections]);
+    const result = placeSection(contentRef.current, doc.format, title, text, replace, near);
+    if (!result) return;
+    contentRef.current = result.content;
+    editorRef.current?.apply(result, { focus: false, keepView: true });
+  }, [doc.format]);
 
   /**
    * Section writing, shared by the outline rail (each row's ✨) and the AI
@@ -407,11 +418,11 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
     readContent: () => contentRef.current,
     readNodes: () => buildOutline(contentRef.current, doc.format),
     touched,
-    onReplace: (start, end, text) => apply({
-      content: contentRef.current.slice(0, start) + text + contentRef.current.slice(end),
-      start: start + text.length,
-      end: start + text.length,
-    }),
+    onReplace: (start, end, text) => {
+      const content = contentRef.current.slice(0, start) + text + contentRef.current.slice(end);
+      contentRef.current = content;
+      editorRef.current?.apply({ content, start: start + text.length, end: start + text.length }, { focus: false, keepView: true });
+    },
   });
   /** Find a suggestion's passage on the page, near the section it was made in. */
   const locateSuggestion = useCallback((suggestion: Suggestion) => {
@@ -464,14 +475,15 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
     // can be undone long after the undo stack has moved on.
     if (plan.id) void takeVersion(plan.id, contentRef.current, 'checkpoint', 'Before applying an outline').catch(() => {});
     const { result, removed } = applyOutline(contentRef.current, doc.format, proposal);
-    apply(result);
+    contentRef.current = result.content;
+    editorRef.current?.apply(result, { focus: false, keepView: true });
     toast.success(removed.length
       ? `Outline applied — ${removed.length} section${removed.length === 1 ? '' : 's'} removed`
       : 'Outline applied', {
       description: removed.length ? removed.slice(0, 4).join(', ') + (removed.length > 4 ? '…' : '') : undefined,
       action: { label: 'Undo', onClick: () => editorRef.current?.undo() },
     });
-  }, [apply, doc.format, plan.id]);
+  }, [doc.format, plan.id]);
 
   /**
    * Put a refined passage back where it came from.
@@ -538,6 +550,8 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
     });
   }, [compact]);
   const sourcesOpen = !aiOpen && (compact ? sourcesDrawer : options.sources);
+  /** The right-hand column: which panel it shows, swapped with a slide. */
+  const shelfSwap = useShelfSwap(aiOpen ? 'ai' : sourcesOpen ? 'sources' : null);
 
   /** Open the AI panel on a tab — Refine's field for ⌘J — on the queue, or on Write with one section. */
   const openAi = useCallback((focus: AiFocus = 'refine', section?: OutlineNode, action?: string) => {
@@ -752,6 +766,52 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
     };
   }, [printing]);
 
+  // ── Reading position across Read / Live ─────────────────────────────────
+  /*
+   * Switching between reading and writing swaps one surface for another of
+   * a different height, and the new one opened at its top, or wherever its
+   * old scroll offset happened to point. The section being read, and how far
+   * into it, is captured on the way out and found again on the way in.
+   */
+  const readingAnchor = useRef<ReadingAnchor | null>(null);
+  const switchMode = useMemo(() => onMode && ((next: 'read' | 'write') => {
+    if (editing) {
+      const top = editorRef.current?.topPosition();
+      if (top != null) readingAnchor.current = anchorFromOffset(buildOutline(contentRef.current, doc.format), contentRef.current.length, top);
+    } else if (previewRef.current) {
+      readingAnchor.current = anchorFromPreview(previewRef.current);
+    }
+    onMode(next);
+  }), [doc.format, editing, onMode]);
+
+  useEffect(() => {
+    const anchor = readingAnchor.current;
+    if (!anchor) return;
+    readingAnchor.current = null;
+    let tries = 0;
+    let frame = 0;
+    let settle = 0;
+    const place = (): boolean => {
+      if (editing) {
+        if (!editorRef.current) return false;
+        const text = contentRef.current;
+        editorRef.current.scrollToTop(offsetFromAnchor(buildOutline(text, doc.format), text.length, anchor));
+        return true;
+      }
+      return !!previewRef.current && scrollPreviewTo(previewRef.current, anchor);
+    };
+    // The read view arrives lazily and typesets as it goes: try each frame
+    // until its headings exist, then once more after maths and images settle.
+    const attempt = () => {
+      if (place()) { settle = window.setTimeout(place, 350); return; }
+      if (++tries < 120) frame = requestAnimationFrame(attempt);
+    };
+    frame = requestAnimationFrame(attempt);
+    return () => { cancelAnimationFrame(frame); window.clearTimeout(settle); };
+    // Runs on the switch itself; the anchor carries everything else it needs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
   // ── History ─────────────────────────────────────────────────────────────
   /*
    * Automatic snapshots. The first edit of a visit keeps the text as it was
@@ -777,12 +837,13 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
   const restoreVersion = useCallback((content: string, label: string) => {
     // Through the editor, as one change: it reaches collaborators like any
     // edit, and ⌘Z takes it back.
-    apply({ content, start: 0, end: 0 });
+    contentRef.current = content;
+    editorRef.current?.apply({ content, start: 0, end: 0 }, { focus: false, keepView: true });
     toast.success(`Restored “${label}”`, {
       description: 'The text it replaced is in the history.',
       action: { label: 'Undo', onClick: () => editorRef.current?.undo() },
     });
-  }, [apply]);
+  }, []);
 
   const handleExport = useCallback((kind: 'link' | 'source' | 'copy' | 'print' | 'pdf') => {
     const body = doc.format === 'latex' ? wrapLatexDocument(doc.name, doc.content) : doc.content;
@@ -828,6 +889,11 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
         aiCollaborators={doc.aiCollaborators}
         aiStatuses={reviewers.statuses}
         onOpenReview={() => openAi('review')}
+        onAiChange={isOwner ? doc.setAiCollaborators : undefined}
+        myId={user?.id}
+        aiPopOpen={aiPopOpen}
+        onAiPopOpen={setAiPopOpen}
+        suggestions={reviewers.suggestions.length}
         peers={doc.peers}
         saveState={doc.saveState}
         onSave={() => doc.save()}
@@ -838,7 +904,7 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
         onSurface={mode => updateOptions({ surface: mode })}
         compact={compact}
         editing={editing}
-        onMode={onMode}
+        onMode={switchMode}
         options={options}
         onOptions={updateOptions}
         onExport={handleExport}
@@ -941,18 +1007,22 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
         ) : (
           <div className="editor-preview doc-themed" {...styleAttrs}>
             <Suspense fallback={PREVIEW_PENDING}>
-              <PreviewPane content={doc.content} format={doc.format} fontSize={options.fontSize} />
+              <PreviewPane ref={previewRef} content={doc.content} format={doc.format} fontSize={options.fontSize} />
             </Suspense>
           </div>
         )}
 
         {/* The AI panel: its own column on the right, apart from the outline —
             or a drawer over the document when the layout is compact. */}
-        {editing && compact && sourcesOpen && (
+        {editing && compact && shelfSwap.shown === 'sources' && (
           <div className="editor-rail-scrim" onClick={() => setSourcesOpen(false)} aria-hidden="true" />
         )}
-        {editing && sourcesOpen && (
+        {editing && shelfSwap.shown === 'sources' && (
           <SourcesPanel
+            width={options.aiWidth}
+            onWidth={setAiWidth}
+            phase={shelfSwap.phase}
+            onAnimationEnd={shelfSwap.onAnimationEnd}
             content={doc.content}
             format={doc.format}
             compact={compact}
@@ -963,11 +1033,13 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
             }}
           />
         )}
-        {editing && compact && aiOpen && (
+        {editing && compact && shelfSwap.shown === 'ai' && (
           <div className="editor-rail-scrim" onClick={() => setAiOpen(false)} aria-hidden="true" />
         )}
-        {editing && aiOpen && (
+        {editing && shelfSwap.shown === 'ai' && (
           <AiPanel
+            phase={shelfSwap.phase}
+            onAnimationEnd={shelfSwap.onAnimationEnd}
             queue={queue}
             shelf={shelf}
             subject={doc.name}
@@ -987,7 +1059,7 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
             onWidth={setAiWidth}
             aiCollaborators={doc.aiCollaborators}
             reviewers={reviewers}
-            onManageAi={isOwner ? () => setShowShare(true) : undefined}
+            onManageAi={isOwner ? () => setAiPopOpen(true) : undefined}
             onLocateSuggestion={locateSuggestion}
             writer={writer}
             wordsOf={wordsOf}
@@ -1043,10 +1115,6 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
             coAuthors={doc.coAuthors}
             coAuthorUsernames={doc.coAuthorUsernames}
             onChange={doc.setCoAuthors}
-            aiCollaborators={doc.aiCollaborators}
-            onAiChange={doc.setAiCollaborators}
-            myId={user?.id}
-            statuses={reviewers.statuses}
           />
 
           {plan.id && (

@@ -16,6 +16,7 @@ import { Avatar, Button, Divider, IconButton, Kbd, Toaster, Row, Stack } from '@
 import { OnboardingModal } from "@/components/OnboardingModal";
 import { AiKeyHost } from "@/components/AiKeyHost";
 import { ConfirmHost } from "@/components/ConfirmHost";
+import { AiRejectionHost } from "@/components/AiRejectionHost";
 import { type QueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Command, FolderOpen, Users, Search, Settings } from "lucide-react";
@@ -236,6 +237,7 @@ function Root() {
       <OnboardingModal />
       <AiKeyHost />
       <ConfirmHost />
+      <AiRejectionHost />
       <main className={`flex-1 w-full mx-auto relative z-10 ${isEditorRoute ? 'min-h-0' : `px-4 py-6 mt-20 md:mt-24 ${isMarketing ? '' : 'max-md:pb-28'}`}`}>
         <Outlet />
       </main>

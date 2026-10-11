@@ -334,14 +334,15 @@ _STOP = {"the", "and", "for", "with", "that", "this", "from", "are", "was", "how
          "why", "into", "its", "their", "about", "between", "using", "use", "vs"}
 
 
-def relevant_passages(pages: List[str], focus: str, budget: int = 6000) -> str:
+def relevant_passages(pages: List[str], focus: str, budget: int = 4000) -> str:
     """The paragraphs of `pages` most about `focus`, up to `budget` characters.
 
     Sending five whole pages to every section is slow, expensive, and buries
     the few paragraphs that matter: a section on "semantic chunking" needs the
     two paragraphs about semantic chunking, not the article's introduction.
     Paragraphs are scored by how many of the focus words they contain, and
-    kept in their original order so they still read as text.
+    kept in their original order so they still read as text. The budget is
+    about 1,000 tokens: the section's own facts, not the pages' surroundings.
     """
     terms = {w for w in _WORD.findall(focus.lower()) if w not in _STOP}
     scored: List[Tuple[int, int, int, str]] = []

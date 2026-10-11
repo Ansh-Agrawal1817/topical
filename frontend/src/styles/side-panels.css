@@ -1228,3 +1228,13 @@ a.ai-context-text:focus-visible { outline: 2px solid var(--accent-400); outline-
 }
 .review-card-reason { font-size: 11.5px; line-height: 1.45; color: var(--ink-muted); }
 .review-card-actions { display: flex; gap: 6px; padding: 0 12px 10px; }
+
+/* ── The right-hand column swapping panels (hooks/useShelfSwap.ts) ──
+   The one leaving slides out to the right; then the next slides in. */
+.ai-side[data-phase='out'] { animation: shelf-out 170ms var(--ease-in, cubic-bezier(0.4, 0, 1, 1)) forwards; }
+.ai-side[data-phase='in'] { animation: shelf-in 240ms var(--ease-out) both; }
+@keyframes shelf-out { to { transform: translateX(100%); opacity: 0.4; } }
+@keyframes shelf-in { from { transform: translateX(100%); opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) {
+  .ai-side[data-phase] { animation: none; }
+}

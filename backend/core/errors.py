@@ -25,11 +25,14 @@ logger = logging.getLogger(__name__)
 GENERIC_MESSAGE = "Something went wrong. Please try again."
 
 
-def error_response(message: str, status_code: int, headers: dict | None = None) -> JSONResponse:
-    """The one failure body: a single sentence, under both keys."""
+def error_response(
+    message: str, status_code: int, headers: dict | None = None, extra: dict | None = None,
+) -> JSONResponse:
+    """The one failure body: a single sentence, under both keys — plus, for
+    the few failures a client handles specially, a structured field beside it."""
     return JSONResponse(
         status_code=status_code,
-        content={"error": message, "detail": message},
+        content={**(extra or {}), "error": message, "detail": message},
         headers=headers,
     )
 
@@ -43,12 +46,15 @@ class AppError(Exception):
     """
 
     def __init__(self, message: str, status_code: int = status.HTTP_400_BAD_REQUEST,
-                 headers: dict | None = None):
+                 headers: dict | None = None, extra: dict | None = None):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
         #: e.g. Retry-After on a 429, so a client waits as long as the provider asked.
         self.headers = headers
+        #: Structured detail merged into the body — e.g. ``rejection`` for a
+        #: request the AI provider refused, which the client shows as a dialog.
+        self.extra = extra
 
 
 class NotFound(AppError):
@@ -96,7 +102,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(AppError)
     async def _app_error(_: Request, exc: AppError) -> JSONResponse:
-        return error_response(exc.message, exc.status_code, headers=exc.headers)
+        return error_response(exc.message, exc.status_code, headers=exc.headers, extra=exc.extra)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:

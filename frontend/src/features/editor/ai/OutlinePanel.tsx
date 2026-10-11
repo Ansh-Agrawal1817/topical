@@ -1,7 +1,9 @@
+import { OUTLINE_COMPLETIONS, subjectCompletions } from './completions';
 import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { FileSearch, RotateCcw, Sparkles, X } from 'lucide-react';
 import { Button, Spinner } from '@/components/ui';
+import { isRejection } from '@/lib/api';
 import type { DocFormat } from '@/lib/types';
 import type { OutlineNode } from '../lib/outline';
 import type { PlanItem } from '../lib/plan';
@@ -119,7 +121,8 @@ export function OutlinePanel({
         },
         fail: error => {
           setWorking(null);
-          if (!(error instanceof JobCancelled)) toast.error('The outline request failed — retry it from the queue below.');
+          // A provider refusal has its own dialog; anything else is a toast.
+          if (!(error instanceof JobCancelled) && !isRejection(error)) toast.error('The outline request failed — retry it from the queue below.');
         },
       },
     });
@@ -158,6 +161,7 @@ export function OutlinePanel({
         onChange={setInstruction}
         onSubmit={submit}
         suggestions={suggestions}
+        completions={hasOutline ? OUTLINE_COMPLETIONS : subjectCompletions(projectName)}
         submitDisabled={!hasOutline && !instruction.trim()}
         disabled={working !== null}
         submitIcon={<Sparkles className="h-3 w-3" aria-hidden="true" />}

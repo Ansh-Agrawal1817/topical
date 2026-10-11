@@ -7,10 +7,9 @@ import { Button, Chip, IconButton, Spinner, Input, Segmented, MenuItem, MenuLabe
 import type { DocFormat } from '@/lib/types';
 import { SOURCE_EXTENSION } from '../lib/exporters';
 import { Collaborators } from '@/components/Collaborators';
-import { ProviderMark } from '@/components/ProviderTile';
-import type { AiProvider } from '@/lib/aiCredentials';
 import type { AiCollaborator } from '@/lib/types';
 import type { ReviewerStatus } from '../ai/reviewers';
+import { AiCollaboratorsButton } from './AiCollaboratorsButton';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { setTheme, useTheme } from '@/lib/theme';
 import type { AwarenessCursor } from '@/hooks/useYjsCollab';
@@ -33,6 +32,12 @@ interface Props {
   aiCollaborators: AiCollaborator[];
   aiStatuses: Record<string, ReviewerStatus>;
   onOpenReview: () => void;
+  /** Owner only: change the AI collaborators. */
+  onAiChange?: (next: AiCollaborator[]) => void;
+  myId?: string;
+  aiPopOpen: boolean;
+  onAiPopOpen: (open: boolean) => void;
+  suggestions: number;
   peers: AwarenessCursor[];
   /** Where the document's save stands — the button mirrors it. */
   saveState: SaveState;
@@ -81,7 +86,7 @@ export function EditorHeader(props: Props) {
 
   const {
     name, format, onRename, authorUsername, coAuthorUsernames, isAuthor, onManageCoAuthors,
-    aiCollaborators, aiStatuses, onOpenReview,
+    aiCollaborators, aiStatuses, onOpenReview, onAiChange, myId, aiPopOpen, onAiPopOpen, suggestions,
     peers, saveState, onSave, onBack, onUndo, onRedo,
     surface, onSurface, options, onOptions, onExport, compact, editing, onMode, docStyle, onDocStyle,
   } = props;
@@ -113,6 +118,19 @@ export function EditorHeader(props: Props) {
         Print
       </MenuItem>
     </>
+  );
+
+  const aiButton = editing && (
+    <AiCollaboratorsButton
+      collaborators={aiCollaborators}
+      statuses={aiStatuses}
+      onChange={onAiChange}
+      myId={myId}
+      open={aiPopOpen}
+      onOpenChange={onAiPopOpen}
+      onOpenReview={onOpenReview}
+      suggestions={suggestions}
+    />
   );
 
   return (
@@ -148,11 +166,14 @@ export function EditorHeader(props: Props) {
           the part you act on. Narrow, only the second survives — a bar with
           six things in 375px has no room for "by realaryan". */}
       {compact ? (
-        <Collaborators
-          authorUsername={authorUsername}
-          coAuthorUsernames={coAuthorUsernames}
-          onManage={isAuthor ? onManageCoAuthors : undefined}
-        />
+        <>
+          <Collaborators
+            authorUsername={authorUsername}
+            coAuthorUsernames={coAuthorUsernames}
+            onManage={isAuthor ? onManageCoAuthors : undefined}
+          />
+          {aiButton}
+        </>
       ) : (
         <div className="editor-byline">
           <span className="editor-byline-label">by</span>
@@ -167,22 +188,9 @@ export function EditorHeader(props: Props) {
             coAuthorUsernames={coAuthorUsernames}
             onManage={isAuthor ? onManageCoAuthors : undefined}
           />
+          {/* The AI collaborators, beside the people: add one, set them up, see what they suggest. */}
+          {aiButton}
         </div>
-      )}
-
-      {/* The AI collaborators, beside the people: a provider mark each, lit
-          while it reads. Opens what they suggest. */}
-      {aiCollaborators.length > 0 && (
-        <button type="button" className="editor-ais" onClick={onOpenReview}
-          title={aiCollaborators.map(ai => `${ai.name} (${ai.model})${ai.enabled ? '' : ' — paused'}`).join('\n')}
-          aria-label={`${aiCollaborators.length} AI collaborator${aiCollaborators.length === 1 ? '' : 's'} — open their suggestions`}>
-          {aiCollaborators.slice(0, 3).map(ai => (
-            <span key={ai.id} className="editor-ai" data-state={aiStatuses[ai.id]?.state ?? 'idle'}>
-              <ProviderMark provider={ai.provider as AiProvider} size="sm" />
-            </span>
-          ))}
-          {aiCollaborators.length > 3 && <span className="editor-ai editor-ai--more">+{aiCollaborators.length - 3}</span>}
-        </button>
       )}
 
       {editing && !compact && peers.length > 0 && (

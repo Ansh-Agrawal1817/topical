@@ -50,7 +50,7 @@ export interface LiveEditorHandle {
    * bar's Replace keeps it, so a second Enter replaces again instead of
    * typing a newline into the document.
    */
-  apply(result: EditResult, options?: { focus?: boolean; scroll?: boolean }): void;
+  apply(result: EditResult, options?: { focus?: boolean; scroll?: boolean; keepView?: boolean }): void;
   /** Move the selection, optionally scrolling it into the middle of the view and flashing its line. */
   select(start: number, end?: number, options?: { reveal?: boolean; flash?: boolean; focus?: boolean }): void;
   /** Where a character is on screen, in viewport coordinates. */
@@ -59,6 +59,10 @@ export interface LiveEditorHandle {
   posAtCoords(x: number, y: number): number | null;
   undo(): void;
   redo(): void;
+  /** The document position at the top of the view — where the writer is reading. */
+  topPosition(): number | null;
+  /** Scroll so `pos` sits at the top of the view, without moving the caret. */
+  scrollToTop(pos: number): void;
 }
 
 interface Props {
@@ -124,11 +128,45 @@ function changeBetween(a: string, b: string) {
   return { from: start, to: endA, insert: b.slice(start, endB) };
 }
 
-/** Apply a whole-document edit as the change it really is, selection included. */
-function applyResult(view: EditorView, result: EditResult, userEvent = 'input', scroll = true) {
+/** The start of the line at the top of the visible text. */
+function topOf(view: EditorView): number {
+  const box = view.scrollDOM.getBoundingClientRect();
+  return view.lineBlockAtHeight(Math.max(0, box.top - view.documentTop + 2)).from;
+}
+
+/**
+ * Apply a whole-document edit as the change it really is, selection included.
+ *
+ * `keepView`: an edit that happens *to* the writer rather than *by* them —
+ * a section the AI wrote, an outline applied, a version restored. Their
+ * caret stays where it was (mapped through the change) and nothing scrolls,
+ * so CodeMirror's own scroll anchoring keeps the text they are reading in
+ * place. Moving the caret to the new text, and scrolling to it, is what
+ * yanked the page to whichever section was being written.
+ */
+function applyResult(view: EditorView, result: EditResult, userEvent = 'input', scroll = true, keepView = false) {
   const current = view.state.doc.toString();
   const change = changeBetween(current, result.content);
   const size = result.content.length;
+  if (keepView) {
+    if (change.from === change.to && !change.insert) return;
+    // The line at the top of the view, and exactly where it sits: put back
+    // after the edit, wherever the edit moved it. CodeMirror's own anchoring
+    // let the page drift when whole sections above were replaced.
+    const scrollerTop = () => view.scrollDOM.getBoundingClientRect().top;
+    const pad = () => view.documentTop - scrollerTop() + view.scrollDOM.scrollTop;
+    const block = view.lineBlockAtHeight(Math.max(0, scrollerTop() - view.documentTop + 2));
+    const shown = pad() + block.top - view.scrollDOM.scrollTop;
+    const transaction = view.state.update({ changes: change, scrollIntoView: false, userEvent });
+    // Inside the replaced span (the section being read was the one rewritten): its start.
+    const anchor = transaction.changes.mapPos(block.from, -1);
+    view.dispatch(transaction);
+    view.requestMeasure({
+      read: v => ({ top: v.lineBlockAt(Math.min(anchor, v.state.doc.length)).top, pad: pad() }),
+      write: ({ top, pad: padding }, v) => { v.scrollDOM.scrollTop = padding + top - shown; },
+    });
+    return;
+  }
   view.dispatch({
     changes: change.from === change.to && !change.insert ? undefined : change,
     selection: { anchor: Math.min(result.start, size), head: Math.min(result.end, size) },
@@ -370,10 +408,16 @@ export const LiveEditor = forwardRef<LiveEditorHandle, Props>(function LiveEdito
   }, [props.value]);
 
   // ── Configuration ─────────────────────────────────────────────────────
+  const lastMode = useRef(props.mode);
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
     const c = compartments.current;
+    // Live and Source draw the same text at different heights, so the same
+    // scroll offset is a different place in each. The line at the top of the
+    // view is kept there across the switch instead.
+    const top = lastMode.current !== props.mode ? topOf(view) : null;
+    lastMode.current = props.mode;
     view.dispatch({
       effects: [
         c.language.reconfigure(languageFor(props.format)),
@@ -382,6 +426,7 @@ export const LiveEditor = forwardRef<LiveEditorHandle, Props>(function LiveEdito
         c.gutter.reconfigure(props.mode === 'source' && props.lineNumbers ? lineNumbers() : []),
       ],
     });
+    if (top !== null) view.dispatch({ effects: EditorView.scrollIntoView(top, { y: 'start', yMargin: 0 }) });
   }, [props.format, props.mode, props.lineNumbers]);
 
   useEffect(() => {
@@ -416,7 +461,7 @@ export const LiveEditor = forwardRef<LiveEditorHandle, Props>(function LiveEdito
     apply: (result, options = {}) => {
       const view = viewRef.current;
       if (!view) return;
-      applyResult(view, result, 'input', options.scroll !== false);
+      applyResult(view, result, 'input', options.scroll !== false && !options.keepView, options.keepView);
       if (options.focus !== false) view.focus();
     },
     select: (start, end = start, options = {}) => {
@@ -441,6 +486,15 @@ export const LiveEditor = forwardRef<LiveEditorHandle, Props>(function LiveEdito
       return rect ? { left: rect.left, top: rect.top, bottom: rect.bottom } : null;
     },
     posAtCoords: (x, y) => viewRef.current?.posAtCoords({ x, y }) ?? null,
+    topPosition: () => {
+      const view = viewRef.current;
+      return view ? topOf(view) : null;
+    },
+    scrollToTop: pos => {
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({ effects: EditorView.scrollIntoView(Math.min(pos, view.state.doc.length), { y: 'start', yMargin: 0 }) });
+    },
     undo: () => { const view = viewRef.current; if (view) { undo(view); view.focus(); } },
     redo: () => { const view = viewRef.current; if (view) { redo(view); view.focus(); } },
   }), []);

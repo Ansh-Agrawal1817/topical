@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { ChevronDown, Plus, Trash2 } from 'lucide-react';
-import { Button, Heading, IconButton, Text } from '@/components/ui';
+import { Button, IconButton, Text } from '@/components/ui';
+import { GhostField } from '@/components/GhostField';
+import { REVIEWER_COMPLETIONS } from '../ai/completions';
 import { ProviderMark } from '@/components/ProviderTile';
 import { getCredentials, presetFor, type AiProvider } from '@/lib/aiCredentials';
 import type { AiCollaborator } from '@/lib/types';
@@ -26,7 +28,8 @@ const STATE_TEXT: Record<ReviewerStatus['state'], string> = {
 
 interface Props {
   collaborators: AiCollaborator[];
-  onChange: (next: AiCollaborator[]) => void;
+  /** Absent: read-only — who reviews and how it is going, for anyone but the owner. */
+  onChange?: (next: AiCollaborator[]) => void;
   myId?: string;
   statuses: Record<string, ReviewerStatus>;
 }
@@ -45,12 +48,13 @@ export function AiCollaboratorsSection({ collaborators, onChange, myId, statuses
   const credentials = getCredentials();
   const available = credentials.filter(credential => !collaborators.some(c => c.id === credential.id));
 
+  const editable = !!onChange;
   const update = (id: string, patch: Partial<AiCollaborator>) =>
-    onChange(collaborators.map(c => (c.id === id ? { ...c, ...patch } : c)));
+    onChange?.(collaborators.map(c => (c.id === id ? { ...c, ...patch } : c)));
 
   const add = (id: string) => {
     const credential = credentials.find(c => c.id === id);
-    if (!credential || collaborators.length >= 8) return;
+    if (!credential || !onChange || collaborators.length >= 8) return;
     const name = presetFor(credential.provider).name;
     onChange([...collaborators, {
       id: credential.id,
@@ -67,14 +71,9 @@ export function AiCollaboratorsSection({ collaborators, onChange, myId, statuses
   };
 
   return (
-    <div className="mt-1">
-      <Heading level={4} size="label" className="mb-2">AI collaborators</Heading>
-
-      {collaborators.length === 0 && (
-        <Text size="xs" tone="ghost" className="mb-2">
-          Add one of your models to review as you write. It reads only the section last worked on, and suggests
-          changes only when something is wrong.
-        </Text>
+    <div className="aic">
+      {collaborators.length === 0 && !editable && (
+        <Text size="xs" tone="ghost">No AI collaborators yet. The document’s owner can add one.</Text>
       )}
 
       <ul className="aic-list">
@@ -85,24 +84,29 @@ export function AiCollaboratorsSection({ collaborators, onChange, myId, statuses
             <li key={c.id} className="aic-row" data-open={expanded || undefined}>
               <div className="aic-head">
                 <ProviderMark provider={c.provider as AiProvider} size="sm" />
-                <button type="button" className="aic-name" onClick={() => setOpen(expanded ? null : c.id)} aria-expanded={expanded}>
+                <button type="button" className="aic-name" onClick={() => editable && setOpen(expanded ? null : c.id)}
+                  aria-expanded={editable ? expanded : undefined} disabled={!editable}>
                   <span className="aic-title">{c.name}</span>
                   <span className="aic-sub">
                     {c.model} · every {c.intervalSeconds}s · {STATE_TEXT[status?.state ?? (c.enabled ? 'idle' : 'off')]}
                   </span>
                 </button>
-                <label className="aic-switch" title={c.enabled ? 'Pause' : 'Resume'}>
-                  <input type="checkbox" role="switch" checked={c.enabled}
-                    onChange={event => update(c.id, { enabled: event.target.checked })}
-                    aria-label={c.enabled ? `Pause ${c.name}` : `Resume ${c.name}`} />
-                  <span aria-hidden="true" />
-                </label>
-                <IconButton size="xs" onClick={() => setOpen(expanded ? null : c.id)} aria-label={`Settings for ${c.name}`} title="Settings">
-                  <ChevronDown className="aic-chevron h-3.5 w-3.5" />
-                </IconButton>
+                {editable && (
+                  <label className="aic-switch" title={c.enabled ? 'Pause' : 'Resume'}>
+                    <input type="checkbox" role="switch" checked={c.enabled}
+                      onChange={event => update(c.id, { enabled: event.target.checked })}
+                      aria-label={c.enabled ? `Pause ${c.name}` : `Resume ${c.name}`} />
+                    <span aria-hidden="true" />
+                  </label>
+                )}
+                {editable && (
+                  <IconButton size="xs" onClick={() => setOpen(expanded ? null : c.id)} aria-label={`Settings for ${c.name}`} title="Settings">
+                    <ChevronDown className="aic-chevron h-3.5 w-3.5" />
+                  </IconButton>
+                )}
               </div>
 
-              {expanded && (
+              {expanded && editable && (
                 <div className="aic-body">
                   <label className="aic-field">
                     <span>Name</span>
@@ -112,9 +116,15 @@ export function AiCollaboratorsSection({ collaborators, onChange, myId, statuses
                   </label>
                   <label className="aic-field">
                     <span>What to watch for</span>
-                    <textarea rows={3} maxLength={2000} value={c.instructions}
+                    <GhostField
+                      fieldClassName="aic-textarea"
+                      completions={REVIEWER_COMPLETIONS.filter(text => !c.instructions.includes(text))}
+                      rows={3}
+                      maxLength={2000}
+                      value={c.instructions}
                       placeholder="e.g. Check the maths. Keep the tone formal."
-                      onChange={event => update(c.id, { instructions: event.target.value })} />
+                      onChange={next => update(c.id, { instructions: next })}
+                    />
                   </label>
                   <div className="ai-suggestions">
                     {FOCUS.map(focus => {
@@ -144,7 +154,7 @@ export function AiCollaboratorsSection({ collaborators, onChange, myId, statuses
                     when it changed since the last look. {status?.state === 'elsewhere' && 'Its key is in the browser of whoever added it, so it runs there.'}
                   </p>
                   <div className="aic-actions">
-                    <Button variant="ghost" size="xs" tone="danger" onClick={() => { onChange(collaborators.filter(x => x.id !== c.id)); setOpen(null); }}>
+                    <Button variant="ghost" size="xs" tone="danger" onClick={() => { onChange?.(collaborators.filter(x => x.id !== c.id)); setOpen(null); }}>
                       <Trash2 className="h-3 w-3" aria-hidden="true" /> Remove
                     </Button>
                   </div>
@@ -155,8 +165,8 @@ export function AiCollaboratorsSection({ collaborators, onChange, myId, statuses
         })}
       </ul>
 
-      {available.length > 0 ? (
-        <div className="aic-add">
+      {!editable ? null : available.length > 0 ? (
+        <div className="aic-add" aria-label="Add one of your models">
           {available.map(credential => (
             <button key={credential.id} type="button" className="aic-add-btn" onClick={() => add(credential.id)}
               disabled={collaborators.length >= 8} title={`Add ${presetFor(credential.provider).name} · ${credential.model}`}>

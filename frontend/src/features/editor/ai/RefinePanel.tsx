@@ -1,10 +1,11 @@
+import { CONTINUE_COMPLETIONS, REFINE_COMPLETIONS } from './completions';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Check, CornerDownLeft, Copy, RotateCcw, Sparkles, X } from 'lucide-react';
 import { Button, IconButton, Spinner } from '@/components/ui';
-import { transformSelection } from '@/lib/api';
+import { isRejection, transformSelection } from '@/lib/api';
 import type { DocFormat } from '@/lib/types';
-import { AI_ACTIONS, CONTEXT_CHARS, MIN_PASSAGE_WORDS, type AiAction } from '../lib/aiActions';
+import { AI_ACTIONS, CONTEXT_CHARS, MIN_PASSAGE_WORDS, textAfter, textBefore, type AiAction } from '../lib/aiActions';
 import { rawHeadings, type OutlineNode } from '../lib/outline';
 import { countWords } from '../lib/stats';
 import { copyText } from '../lib/exporters';
@@ -111,7 +112,8 @@ export function RefinePanel({
       toast.info(`"${chosen.label}" needs at least ${MIN_PASSAGE_WORDS} words selected.`);
       return;
     }
-    const runUp = content.slice(Math.max(0, base.start - (base.hasSelection ? CONTEXT_CHARS : CONTEXT_CHARS * 2)), base.start);
+    // "Continue" has no selection: the run-up is what it continues, so it gets twice the room.
+    const runUp = textBefore(content, base.start, base.hasSelection ? CONTEXT_CHARS : CONTEXT_CHARS * 2);
     const next: Target = {
       start: base.start, end: base.end, passage: base.passage, hasSelection: base.hasSelection,
       trail: sectionTrail(outline, base.start),
@@ -131,7 +133,7 @@ export function RefinePanel({
           format,
           instruction: custom,
           before: next.hasSelection ? runUp : '',
-          after: content.slice(next.end, next.end + CONTEXT_CHARS),
+          after: textAfter(content, next.end),
           title,
           section: next.trail,
           outline: outlineText(outline),
@@ -151,7 +153,8 @@ export function RefinePanel({
         },
         fail: error => {
           setPhase('idle');
-          if (!(error instanceof JobCancelled)) toast.error('The edit failed — retry it from the queue below.');
+          // A provider refusal has its own dialog; anything else is a toast.
+          if (!(error instanceof JobCancelled) && !isRejection(error)) toast.error('The edit failed — retry it from the queue below.');
         },
       },
     });
@@ -237,6 +240,7 @@ export function RefinePanel({
             value={instruction}
             onChange={setInstruction}
             onSubmit={runInstruction}
+            completions={hasSelection ? REFINE_COMPLETIONS : CONTINUE_COMPLETIONS}
             submitDisabled={!instruction.trim()}
             disabled={phase === 'running'}
             submitIcon={<Sparkles className="h-3 w-3" aria-hidden="true" />}

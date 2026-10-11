@@ -230,14 +230,16 @@ async def _grounding(req: GenerateSectionRequest) -> str:
     means the model writes from its own knowledge. "web" is the old
     Wikipedia-for-the-topic mode, still honoured for older clients.
     """
+    focus = " ".join([req.topic, *(req.ancestors or []), req.main_topic])
     if req.source == "web":
-        return await crawl_for_topic(req.topic)
+        # A whole article went in here — 100,000 characters for a long one.
+        article = await crawl_for_topic(req.topic)
+        return relevant_passages([article], focus) if article else ""
     if not req.urls:
         return ""
     pages = [page for page in await crawl_pages(req.urls[:8]) if page]
     if not pages:
         return ""
-    focus = " ".join([req.topic, *(req.ancestors or []), req.main_topic])
     return relevant_passages(pages, focus)
 
 
