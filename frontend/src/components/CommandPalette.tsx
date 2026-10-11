@@ -61,7 +61,7 @@ export function CommandPalette({ open, onClose, isAuthenticated }: Props) {
     try {
       const plan = await createDocument('', format);
       queryClient.invalidateQueries({ queryKey: ['user-lesson-plans'] });
-      navigate(documentRoute(plan.id, plan.mainTopic, 'write'));
+      navigate(documentRoute(plan.id, plan.mainTopic));
     } catch {
       toast.error('Could not start a document');
     }
@@ -112,9 +112,9 @@ export function CommandPalette({ open, onClose, isAuthenticated }: Props) {
       { id: 'projects', label: 'Projects', group: 'Go to', icon: FolderOpen, run: go('/projects') },
       ...base,
       { id: 'lessons', label: 'Public lessons', group: 'Go to', icon: BookOpen, run: go('/community') },
-      { id: 'profile', label: 'Profile', group: 'Go to', icon: UserIcon, run: go('/profile') },
-      { id: 'providers', label: 'AI providers', hint: 'Connect a model', group: 'Go to', icon: KeyRound, run: go('/providers') },
-      { id: 'edit-profile', label: 'Edit profile', hint: 'Name, handle, bio', group: 'Go to', icon: Settings2, run: go('/profile/edit') },
+      { id: 'settings', label: 'Settings', hint: 'Profile, models, appearance', group: 'Go to', icon: UserIcon, run: () => { onClose(); navigate({ to: '/settings' }); } },
+      { id: 'providers', label: 'AI models', hint: 'Connect a provider', group: 'Go to', icon: KeyRound, run: () => { onClose(); navigate({ to: '/settings', search: { section: 'models' } }); } },
+      { id: 'edit-profile', label: 'Edit profile', hint: 'Name, handle, bio', group: 'Go to', icon: Settings2, run: () => { onClose(); navigate({ to: '/settings', search: { section: 'profile' } }); } },
 
       // The writer's own documents, by name. Listed after the fixed commands
       // so an empty query still opens on the same five rows every time — a

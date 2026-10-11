@@ -64,124 +64,8 @@
   font-size: calc(clamp(17px, 15.5px + 0.16cqi, 18.5px) * var(--doc-font-scale, 1));
 }
 
-/* ── …but not in split view ──
-   Centring a measure-limited column is right when the preview *is* the
-   window. In a split it is not: the two panes exist to be read against each
-   other — scroll sync is on, and `.doc-focus` marks the same section on both
-   sides — so every pixel between the divider and the rendered text is
-   distance the eye has to cross to compare a line with its output.
-
-   On an 1800px window with the editor at its narrowest (22%), the preview
-   pane is 1400px and the sheet is 640: 416px of empty gutter on each side,
-   pushing the rendered text a third of a pane away from the source it
-   corresponds to. It reads as a document floating in the middle of nothing,
-   which is what it is.
-
-   The sheet keeps its measure and its padding; it just stops centring. */
-.editor-preview[data-split='true'] .doc-sheet {
-  margin-inline: 0;
-  /* No measure cap in a split.
-     The reading argument for capping a column is that the writer has no other
-     control over line length — but in a split they do: the divider *is* the
-     width control, and it is right there. Capping it as well meant dragging
-     the divider wider did nothing but grow the empty space beside the text,
-     which reads as a layout bug whatever the typographic justification.
-
-     So the pane fills, and the measure is the writer's to set. The type still
-     scales with the pane (see the `cqi` clamp above), which is what keeps a
-     very wide pane from also being a very small one. */
-  max-width: none;
-}
-
-/* A block is clickable back to its source only where there is a source pane
-   to land in — the same `data-split` scope as above. Elsewhere (full-screen
-   preview, or reading with no editing session at all) a rendered block is
-   just a rendered block, and a pointer cursor over it would promise a jump
-   that goes nowhere. */
-.editor-preview[data-split='true'] [data-line] {
-  cursor: pointer;
-}
-.editor-preview[data-split='true'] [data-line]:hover {
-  background: var(--ink-a02);
-  /* Reaches into the sheet's own side padding, the same construction
-     `.doc-focus` uses, so the tint reads as a band under the text rather
-     than a box that stops short of the margin. */
-  margin-inline: -0.5rem;
-  padding-inline: 0.5rem;
-  border-radius: var(--radius-sm);
-}
 /* LaTeX runs denser — more notation per line, and equations that want room. */
 .doc-sheet[data-format='latex'] { max-width: clamp(28rem, 70cqi, 43rem); }
-
-/* ── The section the outline rail is pointing at ──
-   The rendered half marks the same span the editor does, so a row touched in
-   the rail is identifiable in whichever pane the writer happens to be reading.
-
-   The tint is applied through a negative-margin box rather than to the blocks
-   themselves so the highlight is one continuous band down the section instead
-   of a stripe per paragraph, and so it reaches into the sheet's own margin
-   the way a marked passage would. */
-.doc-focus {
-  /* Opaque, not a translucent wash. Consecutive blocks of one section overlap
-     slightly to close the gaps between them (below), and two translucent
-     tints stacked in the overlap would draw a darker band across every
-     paragraph break. */
-  --doc-focus-bg: color-mix(in srgb, rgb(var(--accent-rgb)) 6%, var(--bg));
-  --doc-focus-line: color-mix(in srgb, rgb(var(--accent-rgb)) 45%, var(--bg));
-  position: relative;
-  margin-left: -0.9rem;
-  padding-left: 0.9rem;
-  border-left: 2px solid var(--doc-focus-line);
-  background: var(--doc-focus-bg);
-}
-/* One section reads as one band.
-   ═══════════════════════════════
-   The space between two blocks is the first one's own bottom margin, and no
-   background reaches into a margin — so a run of marked paragraphs came out
-   as separate stripes, with the rule down the side broken in as many places
-   as there were paragraphs.
-
-   Closed by turning that margin into padding on any marked block followed by
-   another one: the block grows to fill the space it was leaving, so the tint
-   and the rule carry across it while the text does not move a pixel. The
-   values below are the same ones declared above — a shared token would be
-   neater, but these margins are read by the type scale and are meant to be
-   legible where they are set, not indirected through a variable that has to
-   be chased to know what the rhythm is. Anything not listed falls back to the
-   prose margin, which is close enough not to show.
-
-   Only blocks *followed* by another marked one are touched, so the end of a
-   section keeps its normal spacing from whatever comes next. */
-.md-body .doc-focus:has(+ .doc-focus) { margin-bottom: 0; padding-bottom: 1.05em; }
-.md-body h1.doc-focus:has(+ .doc-focus) { padding-bottom: 1rem; }
-.md-body h2.doc-focus:has(+ .doc-focus) { padding-bottom: calc(0.4rem + 0.85rem); }
-.md-body h3.doc-focus:has(+ .doc-focus) { padding-bottom: 0.6rem; }
-.md-body h4.doc-focus:has(+ .doc-focus),
-.md-body h5.doc-focus:has(+ .doc-focus),
-.md-body h6.doc-focus:has(+ .doc-focus) { padding-bottom: 0.5rem; }
-.md-body blockquote.doc-focus:has(+ .doc-focus) { padding-bottom: calc(0.15em + 1.2em); }
-.md-body .md-code.doc-focus:has(+ .doc-focus),
-.md-body .md-callout.doc-focus:has(+ .doc-focus),
-.md-body .md-table-wrap.doc-focus:has(+ .doc-focus) { padding-bottom: 1.3em; }
-
-/* The same again from the other side. Adjacent margins collapse to the larger
-   of the two, so a heading's own 2.1rem top margin is what actually separates
-   it from the paragraph above — zeroing that paragraph's bottom margin closes
-   nothing. Prose has no top margin and needs no rule; everything that opens on
-   space gets it back as padding. */
-.md-body .doc-focus + .doc-focus { margin-top: 0; }
-.md-body .doc-focus + h2.doc-focus { padding-top: 2.1rem; }
-.md-body .doc-focus + h3.doc-focus { padding-top: 1.6rem; }
-.md-body .doc-focus + h4.doc-focus,
-.md-body .doc-focus + h5.doc-focus,
-.md-body .doc-focus + h6.doc-focus { padding-top: 1.3rem; }
-.md-body .doc-focus + blockquote.doc-focus { padding-top: calc(0.15em + 1.2em); }
-.md-body .doc-focus + .md-callout.doc-focus { padding-top: calc(0.85rem + 1.3em); }
-.md-body .doc-focus + .md-code.doc-focus,
-.md-body .doc-focus + .md-table-wrap.doc-focus { padding-top: 1.3em; }
-.doc-focus:not(.doc-focus + .doc-focus) { border-top-left-radius: var(--radius-sm); }
-.doc-focus:not(:has(+ .doc-focus)) { border-bottom-left-radius: var(--radius-sm); }
-
 
 /* ── Markdown ──
    The document is set in the serif, and the interface stays in the sans.
@@ -678,7 +562,7 @@
   body.printing-preview .editor-toolbar,
   body.printing-preview .editor-status,
   body.printing-preview .outline-rail,
-  body.printing-preview .editor-divider,
+  body.printing-preview .ai-side,
   body.printing-preview .editor-pane,
   body.printing-preview .find-bar,
   body.printing-preview .lx-issues { display: none !important; }
@@ -686,6 +570,7 @@
   body.printing-preview .editor-root,
   body.printing-preview .editor-main,
   body.printing-preview .editor-preview,
+  body.printing-preview .editor-print-source,
   body.printing-preview .doc-preview {
     display: block !important;
     height: auto !important;
@@ -693,6 +578,7 @@
     overflow: visible !important;
     background: var(--print-bg) !important;
   }
+  body.printing-preview .editor-print-source { position: static !important; left: auto !important; }
   body.printing-preview .doc-sheet { max-width: none; padding: 0; }
   body.printing-preview .md-body,
   body.printing-preview .lx-doc { color: var(--print-ink); font-size: 11.5pt; }

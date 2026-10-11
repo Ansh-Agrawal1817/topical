@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react';
 
 export type Theme = 'light' | 'dark';
-type ThemePreference = Theme | 'system';
+export type ThemePreference = Theme | 'system';
 
 const THEME_KEY = 'topical_theme';
 
@@ -63,6 +63,7 @@ export async function setTheme(theme: Theme, origin?: { x: number; y: number }) 
   } catch {
     // Not being able to remember it is no reason not to apply it.
   }
+  window.dispatchEvent(new Event(PREFERENCE_EVENT));
 
   const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const startViewTransition = (
@@ -154,4 +155,74 @@ export function useTheme(): Theme {
   }, []);
 
   return theme;
+}
+
+/**
+ * Choose light, dark, or "follow the system". `setTheme` remembers an
+ * explicit choice; 'system' forgets it, so the OS decides again — and keeps
+ * deciding when it changes mid-session (see `watchSystemTheme`).
+ */
+export function setThemePreference(preference: ThemePreference, origin?: { x: number; y: number }) {
+  if (preference !== 'system') return setTheme(preference, origin);
+  try {
+    localStorage.removeItem(THEME_KEY);
+  } catch {
+    // Nothing stored to forget.
+  }
+  paint(systemTheme());
+  window.dispatchEvent(new Event(PREFERENCE_EVENT));
+}
+
+const PREFERENCE_EVENT = 'topical:theme-preference';
+
+/** What the reader chose — light, dark or system — kept live. */
+export function useThemePreference(): ThemePreference {
+  const theme = useTheme();
+  const [preference, setPreference] = useState<ThemePreference>(() =>
+    (typeof window === 'undefined' ? 'system' : storedPreference()));
+  useEffect(() => {
+    setPreference(storedPreference());
+    const sync = () => setPreference(storedPreference());
+    window.addEventListener(PREFERENCE_EVENT, sync);
+    return () => window.removeEventListener(PREFERENCE_EVENT, sync);
+  }, [theme]);
+  return preference;
+}
+
+/* ── Glass ──
+   Two strengths of the material, as Apple offers them: clear, where the
+   content behind shows through, and tinted, which is more opaque and easier
+   to read over. Written to `data-glass` on <html>; the boot script in
+   index.html applies it before first paint, like the theme. */
+
+export type GlassMode = 'clear' | 'tinted';
+const GLASS_KEY = 'topical_glass';
+const GLASS_EVENT = 'topical:glass';
+
+function storedGlass(): GlassMode {
+  try {
+    return localStorage.getItem(GLASS_KEY) === 'tinted' ? 'tinted' : 'clear';
+  } catch {
+    return 'clear';
+  }
+}
+
+export function setGlass(mode: GlassMode) {
+  try {
+    localStorage.setItem(GLASS_KEY, mode);
+  } catch {
+    // Still apply it for this visit.
+  }
+  document.documentElement.dataset.glass = mode;
+  window.dispatchEvent(new Event(GLASS_EVENT));
+}
+
+export function useGlass(): GlassMode {
+  const [mode, setMode] = useState<GlassMode>(() => (typeof window === 'undefined' ? 'clear' : storedGlass()));
+  useEffect(() => {
+    const sync = () => setMode(storedGlass());
+    window.addEventListener(GLASS_EVENT, sync);
+    return () => window.removeEventListener(GLASS_EVENT, sync);
+  }, []);
+  return mode;
 }

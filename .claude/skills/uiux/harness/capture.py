@@ -105,7 +105,7 @@ STATES = [
     ("profile-edit", "/profile/edit", True, "full", None, None),
     ("providers", "/providers", True, "full", None, None),
     ("doc-read", "/projects/mdx/101", False, "full", None, None),
-    ("doc-read-latex", "/projects/latex/102", True, "full", None, None),
+    ("doc-read-latex", "/projects/latex/102?mode=read", True, "full", None, None),
     ("doc-write", "/projects/mdx/101?mode=write", True, "full", None, None),
     ("doc-write-latex", "/projects/latex/102?mode=write", True, "full", None, None),
     ("doc-missing", "/projects/mdx/999", True, "full", None, None),

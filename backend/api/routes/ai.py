@@ -15,13 +15,14 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 
 from ...schemas.ai import (
     GenerateSectionRequest,
     OutlineFromDocumentRequest,
     RefineOutlineRequest,
     SearchTopicsRequest,
+    SourcesRequest,
     TransformRequest,
 )
 from ...services.ai import AiCredentials, build_credentials
@@ -41,6 +42,25 @@ def ai_credentials(
 
 
 Credentials = Annotated[AiCredentials, Depends(ai_credentials)]
+
+
+@router.post("/verify-key", status_code=204)
+async def verify_key(user: CurrentUser, creds: Credentials) -> Response:
+    """Whether a key and model work — answered in seconds, before the key is saved."""
+    await generation.verify_key(credentials=creds)
+    return Response(status_code=204)
+
+
+@router.post("/models")
+async def models(user: CurrentUser, creds: Credentials) -> dict:
+    """The chat models the key in the headers can use, read from the provider."""
+    return await generation.models(credentials=creds)
+
+
+@router.post("/sources")
+async def sources(req: SourcesRequest, user: CurrentUser) -> dict:
+    """Top pages for a subject, for the context shelf. No model is called, so no key."""
+    return await generation.sources(req)
 
 
 @router.post("/search-topics")

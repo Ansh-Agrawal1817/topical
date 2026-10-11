@@ -1,0 +1,96 @@
+/* Document style (features/editor/lib/docStyle.ts).
+
+   A theme is a re-scoping of the app's own tokens on the document surface —
+   `.doc-themed`, which is the writing pane and the read view — so the live
+   editor, maths, tables and code inside all follow without knowing a theme
+   exists. "Paper" sets nothing: it is the app's look, light or dark. */
+
+.doc-themed { background: var(--bg); color: var(--ink); }
+
+/* ── Pages ── */
+.doc-themed[data-doc-theme='sepia'] {
+  --bg: #f4ecd8; --bg-subtle: #ede3cb; --surface: #f8f1e0; --surface-2: #ede3cb; --surface-3: #e5d8bb;
+  --line-soft: #e3d6b8; --line: #d8c9a6; --line-strong: #c4b28a; --control-line: #9a8a68;
+  --ink: #3b2f20; --ink-2: #4f4130; --ink-muted: #63523c; --ink-faint: #6e5c44; --ink-ghost: #75634a;
+  --ink-a04: rgba(59, 47, 32, 0.05); --ink-a06: rgba(59, 47, 32, 0.07); --ink-a08: rgba(59, 47, 32, 0.09);
+  color-scheme: light;
+}
+.doc-themed[data-doc-theme='slate'] {
+  --bg: #eef1f5; --bg-subtle: #e5e9ef; --surface: #f6f8fa; --surface-2: #e9edf2; --surface-3: #dfe4eb;
+  --line-soft: #dde2ea; --line: #cfd6e0; --line-strong: #b3bdcb; --control-line: #7d8899;
+  --ink: #1d2733; --ink-2: #334050; --ink-muted: #4a5666; --ink-faint: #55606f; --ink-ghost: #5d6877;
+  --ink-a04: rgba(29, 39, 51, 0.05); --ink-a06: rgba(29, 39, 51, 0.07); --ink-a08: rgba(29, 39, 51, 0.09);
+  color-scheme: light;
+}
+.doc-themed[data-doc-theme='night'] {
+  --bg: #14161b; --bg-subtle: #101216; --surface: #1b1e24; --surface-2: #22262d; --surface-3: #2a2f37;
+  --line-soft: #23272e; --line: #2d323a; --line-strong: #434a55; --control-line: #6b7380;
+  --ink: #e8e6e1; --ink-2: #cfccc5; --ink-muted: #aaa69e; --ink-faint: #9a968e; --ink-ghost: #8f8b84;
+  --ink-a04: rgba(232, 230, 225, 0.05); --ink-a06: rgba(232, 230, 225, 0.07); --ink-a08: rgba(232, 230, 225, 0.09);
+  color-scheme: dark;
+}
+.doc-themed[data-doc-theme='plain'] {
+  --bg: #ffffff; --bg-subtle: #f6f6f6; --surface: #ffffff; --surface-2: #f4f4f4; --surface-3: #ebebeb;
+  --line-soft: #eeeeee; --line: #e2e2e2; --line-strong: #c8c8c8; --control-line: #8a8a8a;
+  --ink: #111111; --ink-2: #333333; --ink-muted: #555555; --ink-faint: #5f5f5f; --ink-ghost: #666666;
+  --ink-a04: rgba(0, 0, 0, 0.04); --ink-a06: rgba(0, 0, 0, 0.06); --ink-a08: rgba(0, 0, 0, 0.08);
+  color-scheme: light;
+}
+
+/* ── Accents (light pages, then dark) ── */
+.doc-themed[data-doc-accent='indigo'] { --accent-400: #4a5b8c; --accent-500: #3e4d78; --accent-600: #323f63; --accent-rgb: 74 91 140; }
+.doc-themed[data-doc-accent='forest'] { --accent-400: #3d6b4a; --accent-500: #335b3f; --accent-600: #284a33; --accent-rgb: 61 107 74; }
+.doc-themed[data-doc-accent='plum']   { --accent-400: #7a4a7e; --accent-500: #683e6b; --accent-600: #553259; --accent-rgb: 122 74 126; }
+.doc-themed[data-doc-accent='graphite'] { --accent-400: #4a4a4a; --accent-500: #3a3a3a; --accent-600: #2a2a2a; --accent-rgb: 74 74 74; }
+.doc-themed[data-doc-dark='true'][data-doc-accent='indigo'] { --accent-400: #8fa3d8; --accent-500: #a4b5e2; --accent-600: #bcc9ec; --accent-rgb: 143 163 216; }
+.doc-themed[data-doc-dark='true'][data-doc-accent='forest'] { --accent-400: #63b184; --accent-500: #7cc298; --accent-600: #98d2ae; --accent-rgb: 99 177 132; }
+.doc-themed[data-doc-dark='true'][data-doc-accent='plum']   { --accent-400: #c08ac4; --accent-500: #cda0d0; --accent-600: #dab8dc; --accent-rgb: 192 138 196; }
+.doc-themed[data-doc-dark='true'][data-doc-accent='graphite'] { --accent-400: #c8c4bc; --accent-500: #d6d2cb; --accent-600: #e4e1db; --accent-rgb: 200 196 188; }
+.doc-themed:not([data-doc-accent='terracotta']) {
+  --accent-soft: rgb(var(--accent-rgb) / 0.12);
+  --accent-line: rgb(var(--accent-rgb) / 0.32);
+}
+/* Night carries the app's dark terracotta when it keeps the default accent. */
+.doc-themed[data-doc-theme='night'][data-doc-accent='terracotta'] {
+  --accent-400: #e0805a; --accent-500: #ec9975; --accent-600: #f5b396; --accent-rgb: 224 128 90;
+  --accent-soft: rgba(224, 128, 90, 0.15); --accent-line: rgba(224, 128, 90, 0.38);
+}
+
+/* ── Fonts: the document's reading face is `--font-serif` ── */
+.doc-themed[data-doc-font='classic'] { --font-serif: 'Iowan Old Style', Charter, Georgia, 'Times New Roman', serif; }
+.doc-themed[data-doc-font='sans'] { --font-serif: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif; }
+.doc-themed[data-doc-font='mono'] { --font-serif: 'IBM Plex Mono', ui-monospace, Menlo, monospace; }
+
+/* ── The menu ── */
+.doc-style-panel { width: 292px; padding: 6px 8px 10px; }
+.doc-style-row { display: flex; gap: 6px; padding: 2px 4px 8px; }
+.doc-style-page {
+  display: flex; flex: 1; flex-direction: column; align-items: center; gap: 4px;
+  min-width: 0; min-height: 0; padding: 0;
+  font-size: var(--text-2xs); color: var(--ink-muted); cursor: pointer;
+}
+.doc-style-page-swatch {
+  display: grid; place-items: center; width: 100%; height: 36px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  font-family: var(--font-serif); font-size: 14px;
+  transition: box-shadow var(--dur-fast) var(--ease-out);
+}
+.doc-style-page[data-on='true'] { color: var(--ink); font-weight: 600; }
+.doc-style-page[data-on='true'] .doc-style-page-swatch { box-shadow: 0 0 0 2px var(--accent-400); }
+.doc-style-dot {
+  display: grid; place-items: center; width: 28px; height: 28px; min-width: 28px; min-height: 28px;
+  border-radius: var(--radius-pill); color: #fff; cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.doc-style-dot:hover { transform: scale(1.08); }
+.doc-style-dot[data-on='true'] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink-a20); }
+.doc-style-fonts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 2px 4px 8px; }
+.doc-style-font {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-height: 0; min-width: 0; padding: 6px 2px;
+  border: 1px solid var(--line-soft); border-radius: var(--radius-sm);
+  font-size: var(--text-2xs); color: var(--ink-muted); cursor: pointer;
+}
+.doc-style-font span:first-child { font-size: 18px; color: var(--ink); }
+.doc-style-font[data-on='true'] { border-color: var(--accent-400); background: var(--accent-soft); color: var(--ink); }
+.doc-style-note { padding: 2px 4px 0; font-size: var(--text-2xs); color: var(--ink-faint); }

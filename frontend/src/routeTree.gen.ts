@@ -17,6 +17,7 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as UUsernameRouteImport } from './routes/u.$username'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedProvidersRouteImport } from './routes/_authenticated/providers'
 import { Route as AuthenticatedProjectsRouteImport } from './routes/_authenticated/projects'
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
@@ -63,6 +64,11 @@ const UUsernameRoute = UUsernameRouteImport.update({
   path: '/u/$username',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedProvidersRoute = AuthenticatedProvidersRouteImport.update({
   id: '/providers',
   path: '/providers',
@@ -106,6 +112,7 @@ export interface FileRoutesByFullPath {
   '/profile': typeof AuthenticatedProfileRoute
   '/projects': typeof AuthenticatedProjectsRoute
   '/providers': typeof AuthenticatedProvidersRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/u/$username': typeof UUsernameRoute
   '/profile/edit': typeof AuthenticatedProfileEditRoute
   '/projects/$format/$id': typeof ProjectsFormatIdRoute
@@ -121,6 +128,7 @@ export interface FileRoutesByTo {
   '/profile': typeof AuthenticatedProfileRoute
   '/projects': typeof AuthenticatedProjectsRoute
   '/providers': typeof AuthenticatedProvidersRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/u/$username': typeof UUsernameRoute
   '/profile/edit': typeof AuthenticatedProfileEditRoute
   '/projects/$format/$id': typeof ProjectsFormatIdRoute
@@ -138,6 +146,7 @@ export interface FileRoutesById {
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
   '/_authenticated/projects': typeof AuthenticatedProjectsRoute
   '/_authenticated/providers': typeof AuthenticatedProvidersRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/u/$username': typeof UUsernameRoute
   '/_authenticated/profile_/edit': typeof AuthenticatedProfileEditRoute
   '/projects/$format/$id': typeof ProjectsFormatIdRoute
@@ -155,6 +164,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/projects'
     | '/providers'
+    | '/settings'
     | '/u/$username'
     | '/profile/edit'
     | '/projects/$format/$id'
@@ -170,6 +180,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/projects'
     | '/providers'
+    | '/settings'
     | '/u/$username'
     | '/profile/edit'
     | '/projects/$format/$id'
@@ -186,6 +197,7 @@ export interface FileRouteTypes {
     | '/_authenticated/profile'
     | '/_authenticated/projects'
     | '/_authenticated/providers'
+    | '/_authenticated/settings'
     | '/u/$username'
     | '/_authenticated/profile_/edit'
     | '/projects/$format/$id'
@@ -261,6 +273,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UUsernameRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/providers': {
       id: '/_authenticated/providers'
       path: '/providers'
@@ -311,6 +330,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
   AuthenticatedProjectsRoute: typeof AuthenticatedProjectsRoute
   AuthenticatedProvidersRoute: typeof AuthenticatedProvidersRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedProfileEditRoute: typeof AuthenticatedProfileEditRoute
 }
 
@@ -319,6 +339,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedProfileRoute: AuthenticatedProfileRoute,
   AuthenticatedProjectsRoute: AuthenticatedProjectsRoute,
   AuthenticatedProvidersRoute: AuthenticatedProvidersRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedProfileEditRoute: AuthenticatedProfileEditRoute,
 }
 

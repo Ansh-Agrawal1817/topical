@@ -9,17 +9,15 @@ import { DocumentView } from '@/features/editor/EditorPage';
 import { Button, EmptyState, LoadingState, Page, Row } from '@/components/ui';
 
 /**
- * Read or write — which of the two the screen is showing right now.
+ * Read mode, in the URL — so a reload, a bookmark or a second tab comes back
+ * in the mode it was left in. Writing is the default for anyone who may
+ * write: the document screen *is* the editor, and Read is a mode of it
+ * rather than a page of its own. A reader is always in read mode.
  *
- * In the URL rather than in component state, for the same reason Google Docs
- * puts `/edit` in its own: a writer who reloads, or bookmarks, or opens the
- * document in a second tab, should get back the mode they were in. It also
- * means switching modes is a search change on the *same* route, so the loaded
- * document is not thrown away and refetched to cross between them — and,
- * because both modes are now the same component, not even remounted.
+ * `?mode=write` from older links parses as the default, which is writing.
  */
 export interface DocumentSearch {
-  mode?: 'write';
+  mode?: 'read';
 }
 
 /**
@@ -40,7 +38,7 @@ export interface DocumentSearch {
 export const Route = createFileRoute('/projects/$format/$id')({
   component: DocumentPage,
   validateSearch: (search: Record<string, unknown>): DocumentSearch => ({
-    mode: search.mode === 'write' ? 'write' : undefined,
+    mode: search.mode === 'read' ? 'read' : undefined,
   }),
 });
 
@@ -86,12 +84,11 @@ function DocumentPage() {
     navigate({
       to: '/projects/$format/$id',
       params: { format, id: rawId },
-      search: next === 'write' ? { mode: 'write' as const } : {},
+      search: next === 'read' ? { mode: 'read' as const } : {},
+      replace: true,
     });
   }, [format, navigate, rawId]);
 
-  const toRead = useCallback(() => setMode('read'), [setMode]);
-  const toWrite = useCallback(() => setMode('write'), [setMode]);
   const toProjects = useCallback(() => navigate({ to: '/projects' }), [navigate]);
 
   if (!valid) return <Unavailable known={false} isAuthenticated={isAuthenticated} />;
@@ -108,7 +105,7 @@ function DocumentPage() {
   if (error || !plan) return <Unavailable known isAuthenticated={isAuthenticated} />;
 
   const mayWrite = data.access !== 'reader';
-  const editing = mode === 'write' && mayWrite;
+  const editing = mayWrite && mode !== 'read';
 
   /*
    * One component for both. Reading is the same shell with the writing surface
@@ -123,9 +120,8 @@ function DocumentPage() {
       plan={plan}
       isOwner={data.access === 'owner'}
       editing={editing}
-      onEdit={mayWrite && !editing ? toWrite : undefined}
-      // Up one level: writing goes back to reading, reading goes back out.
-      onBack={editing ? toRead : toProjects}
+      onMode={mayWrite ? setMode : undefined}
+      onBack={toProjects}
     />
   );
 }

@@ -1,0 +1,367 @@
+/* Voyage — the landing page (features/home/voyage).
+
+   One sticky stage the height of the screen, held while a tall track
+   scrolls past it; a canvas fills the stage and the chapter panels sit over
+   it. The loop sets each panel's opacity and slide from the scroll, and
+   moves the labels pinned to the scene (`.v-anchor`) every frame. */
+
+/* Full-bleed under the floating nav: cancels <main>'s padding and top
+   offset (px-4 py-6 mt-20 md:mt-24 in __root.tsx). Change those and this
+   has to follow. */
+.voyage-page {
+  display: flex;
+  flex-direction: column;
+  width: calc(100% + 2rem);
+  margin: calc(-1 * (5rem + 1.5rem)) -1rem -1.5rem;
+  background: var(--cosmos-ground);
+}
+@media (min-width: 768px) {
+  .voyage-page { margin-top: calc(-1 * (6rem + 1.5rem)); }
+}
+.voyage { position: relative; height: 1400vh; }
+.voyage-stage {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100svh;
+  overflow: hidden;
+  isolation: isolate;
+}
+.voyage-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Chapters ──
+   Hidden until the loop has placed them, so nothing flashes on load. */
+[data-chapter] {
+  opacity: 0;
+  visibility: hidden;
+  z-index: 2;
+}
+[data-chapter][data-active='false'] { pointer-events: none; }
+
+/* The opening: the name, large, and the line under it, small. */
+.v-hero {
+  position: absolute;
+  inset: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(0.6rem, 1.6vh, 1.1rem);
+  padding: clamp(7rem, 21vh, 12.5rem) 1.25rem 0;
+  text-align: center;
+  pointer-events: none;
+}
+.v-hero-mark { margin: 0; line-height: 1; filter: drop-shadow(0 0 22px var(--cosmos-ground)); }
+.v-hero-mark .brand-word { letter-spacing: -0.02em; }
+.v-hero-line {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-style: italic;
+  color: var(--ink-muted);
+  text-shadow: 0 0 2px var(--cosmos-ground), 0 0 14px var(--cosmos-ground);
+}
+.v-hero-line .hero-mark { color: var(--ink); }
+
+.v-arrival-title {
+  max-width: 13ch;
+  font-family: var(--font-serif);
+  font-size: var(--text-display);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.022em;
+  font-optical-sizing: auto;
+  color: var(--ink);
+  text-wrap: balance;
+  text-shadow: 0 0 24px var(--cosmos-ground), 0 0 4px var(--cosmos-ground);
+}
+
+.v-panel {
+  position: absolute;
+  top: 50%;
+  left: clamp(1.25rem, 5vw, 5.5rem);
+  width: min(29rem, 40vw);
+  translate: 0 -50%;
+}
+.v-head { margin-bottom: 1.25rem; }
+.v-head .waypoint { margin-bottom: 0.75rem; }
+.v-title {
+  font-family: var(--font-serif);
+  font-size: clamp(1.9rem, 3.1vw, 2.75rem);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  font-optical-sizing: auto;
+  color: var(--ink);
+  text-wrap: balance;
+}
+/* What a chapter says: a few short paragraphs, read over the sky. In the
+   first, each arrives with the part of the scene it describes. */
+.v-essay { display: grid; gap: 0.95rem; }
+.v-essay p {
+  font-family: var(--font-serif);
+  font-size: clamp(1.05rem, 1.3vw, 1.2rem);
+  line-height: 1.55;
+  color: var(--ink-2);
+  text-wrap: pretty;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity var(--dur-panel) var(--ease-out), transform var(--dur-panel) var(--ease-out);
+}
+.v-essay p[data-on='true'] { opacity: 1; transform: none; }
+.v-essay p:last-child { color: var(--ink); }
+.v-head,
+.v-essay,
+.v-mark,
+.v-trail {
+  text-shadow: 0 0 2px var(--cosmos-ground), 0 0 10px var(--cosmos-ground), 0 0 22px var(--cosmos-ground);
+}
+
+/* ── Where you are: topic or subtopic, and the way down to it ── */
+.v-trail {
+  position: absolute;
+  top: clamp(5.25rem, 11vh, 6.5rem);
+  left: clamp(1.25rem, 5vw, 5.5rem);
+  z-index: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 0.8rem;
+  max-width: calc(100% - 2.5rem);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  opacity: 0;
+  transition: opacity var(--dur-panel) var(--ease-out);
+  pointer-events: none;
+}
+.v-trail[data-shown='true'] { opacity: 1; }
+.v-trail-level {
+  flex-shrink: 0;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-xs);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-500);
+  animation: v-arrive var(--dur-panel) var(--ease-out);
+}
+.v-trail-path {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-faint);
+}
+.v-trail-path li { white-space: nowrap; animation: v-arrive var(--dur-panel) var(--ease-out); }
+.v-trail-path li + li::before { content: '›'; margin: 0 0.55rem; color: var(--ink-faint); }
+.v-trail-path li[data-current='true'] { color: var(--ink); }
+@keyframes v-arrive {
+  from { opacity: 0; transform: translateX(-6px); }
+}
+
+/* ── Labels on the scene: the topic's tree, the Earth's parts ── */
+.v-mark {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.v-mark--root {
+  font-family: var(--font-serif);
+  font-size: var(--text-md);
+  font-style: italic;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+.v-mark--part { font-size: 10px; font-weight: 400; color: var(--cosmos-label); }
+.v-mark-status { font-size: 10px; font-weight: 400; color: var(--accent-500); }
+
+/* Chapter 03: the subtopic's outline beside the planet. Rows are exactly
+   OUTLINE.row (earthside.ts) tall: the canvas draws a line from the part
+   being written to its row and has to land on it. */
+.v-outline {
+  width: 14rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-shadow: 0 0 2px var(--cosmos-ground), 0 0 10px var(--cosmos-ground), 0 0 22px var(--cosmos-ground);
+}
+.v-outline-row { display: flex; align-items: center; gap: 0.75rem; height: 48px; }
+.v-outline-n {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--cosmos-label);
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--ink-faint);
+  background: var(--cosmos-ground);
+  transition: background-color var(--dur-slow) var(--ease-out), border-color var(--dur-slow) var(--ease-out), color var(--dur-slow) var(--ease-out);
+}
+.v-outline-body { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.v-outline-name {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink-faint);
+  transition: color var(--dur-slow) var(--ease-out);
+}
+.v-outline-status {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--ink-ghost);
+}
+/* Who is on it: the same flag as the cursor on the planet. */
+.v-outline-who {
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--cosmos-ground);
+  background: var(--cosmos-ember);
+}
+.v-outline-row[data-who='you'] .v-outline-who { background: var(--cosmos-star); }
+.v-outline-row:not([data-state='queued']) .v-outline-name { color: var(--ink); }
+.v-outline-row[data-state='writing'] .v-outline-n,
+.v-outline-row[data-state='review'] .v-outline-n { border-color: var(--cosmos-ember); color: var(--cosmos-ember); }
+.v-outline-row[data-state='writing'][data-who='you'] .v-outline-n { border-color: var(--cosmos-star); color: var(--cosmos-star); }
+.v-outline-row[data-state='writing'] .v-outline-status { color: var(--ink-muted); }
+.v-outline-row[data-state='review'] .v-outline-status { color: var(--accent-500); }
+.v-outline-row[data-state='flagged'] .v-outline-n { border-color: var(--cosmos-gold); color: var(--cosmos-gold); }
+.v-outline-row[data-state='flagged'] .v-outline-status { color: var(--cosmos-gold); }
+.v-outline-row[data-state='done'] .v-outline-n { border-color: var(--cosmos-ember); color: var(--cosmos-ground); background: var(--cosmos-ember); }
+.v-outline-row[data-state='done'][data-who='you'] .v-outline-n { border-color: var(--cosmos-star); background: var(--cosmos-star); }
+.v-outline-row[data-state='done'] .v-outline-status { color: var(--status-success); }
+/* Beside the planet only where there is room (OUTLINE.minWidth). */
+@media (max-width: 1179px) { .v-outline { display: none; } }
+
+/* Sources in orbit: the ones the current task draws on, lit. */
+.v-mark--source { font-size: 10px; font-weight: 400; color: var(--ink-muted); transition: color var(--dur-slow) var(--ease-out); }
+.v-mark--source[data-used='true'] { color: var(--cosmos-gold); }
+.v-mark--probe { font-size: 10px; color: var(--accent-500); }
+.v-mark--probe[data-back='true'] { color: var(--cosmos-gold); }
+.v-mark--task { display: inline-flex; flex-direction: column; align-items: center; gap: 0.2rem; color: var(--ink); }
+.v-mark--task .v-mark-status { color: var(--ink-muted); }
+
+/* Provenance: the claims, what they trace back to, and the stray dropped. */
+.v-mark--trace { display: inline-flex; flex-direction: column; gap: 0.15rem; font-size: 10.5px; color: var(--ink-2); }
+.v-anchor--above .v-mark--trace { align-items: center; }
+.v-anchor--left .v-mark--trace { align-items: flex-end; }
+.v-mark--trace[data-node='comet'] { color: var(--ink); }
+.v-mark--trace[data-node='comet'] .v-mark-status { color: var(--cosmos-gold); }
+.v-mark--trace[data-node='claims'] .v-mark-status { color: var(--status-success); }
+.v-mark--trace[data-node='radiant'] .v-mark-status { color: var(--ink-faint); }
+.v-mark--trace[data-dropped='true'] { color: var(--ink-faint); text-decoration: line-through; text-decoration-color: rgb(var(--danger-rgb) / 0.6); }
+.v-mark--trace[data-dropped='true'] .v-mark-status { color: var(--status-danger); text-decoration: none; }
+
+/* History and form: drafts on the orbit, the branch, the forms. */
+.v-mark--version { font-size: 10px; color: var(--ink-muted); }
+.v-mark--version[data-branch] { color: var(--accent-500); }
+.v-mark--version[data-now] { color: var(--ink); }
+.v-mark--format { font-size: 10.5px; color: var(--ink-2); }
+
+/* ── The question ── */
+.v-arrival {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: clamp(5.5rem, 13vh, 8.5rem) 1.25rem clamp(4.75rem, 9vh, 6rem);
+  text-align: center;
+}
+.v-arrival-foot { display: flex; flex-direction: column; align-items: center; width: 100%; }
+/* The site's footer, folded into the last screen: the voyage ends here,
+   with nothing below it to scroll to. Quiet, on the sky, no rule above. */
+.v-footer {
+  position: absolute;
+  inset: auto 0 0;
+  margin: 0;
+  padding: 1.1rem var(--gutter) 1.25rem;
+  border-top: 0;
+  background: linear-gradient(to top, var(--cosmos-ground) 55%, transparent);
+}
+.v-arrival-bar { margin-top: 0; }
+.v-arrival .hero-aside { margin-top: 0.9rem; }
+.v-arrival > :last-child { margin-top: 0; }
+
+/* ── Anchors: placed by the loop, offset by alignment ── */
+.v-anchor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.v-anchor-body { position: absolute; left: 0; top: 0; width: max-content; }
+.v-anchor--center > .v-anchor-body { transform: translate(-50%, -50%); }
+.v-anchor--below > .v-anchor-body { transform: translate(-50%, 14px); }
+.v-anchor--above > .v-anchor-body { transform: translate(-50%, calc(-100% - 14px)); }
+.v-anchor--right > .v-anchor-body { transform: translate(16px, -50%); }
+.v-anchor--left > .v-anchor-body { transform: translate(calc(-100% - 16px), -50%); }
+
+/* ── Phones: the scene in the top half, the words at the foot over a fade ── */
+@media (max-width: 819px) {
+  .v-panel {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: auto;
+    padding: 4rem 1.25rem 1.5rem;
+    translate: none;
+    background: linear-gradient(to top, var(--cosmos-ground) 62%, transparent);
+  }
+  .v-head { margin-bottom: 0.75rem; }
+  .v-title { font-size: 1.6rem; }
+  .v-essay { gap: 0.6rem; }
+  .v-essay p { font-size: var(--text-base); }
+  .v-trail { top: 4.75rem; }
+  /* One line: the last two steps of the way down, the rest folded. */
+  .v-trail-path { flex-wrap: nowrap; }
+  .v-trail-path li:not(:nth-last-child(-n + 2)) { display: none; }
+  .v-trail-path li:nth-last-child(2):not(:first-child)::before { content: '… ›'; }
+  /* Too little sky for every name: the nodes all stay, but only the topic,
+     the Solar System — where the camera goes next — and the Earth's part
+     being worked on keep their names. */
+  .v-mark--section,
+  .v-mark--part:not([data-keep]),
+  .v-mark--source:not([data-used='true']),
+  .v-mark--version:not([data-now]),
+  .v-mark--format,
+  .v-mark--trace[data-node='summary'],
+  .v-mark--trace[data-node='page'],
+  .v-mark--trace[data-node='stray'] { display: none; }
+  .v-mark--root { font-size: var(--text-sm); }
+  .v-arrival { padding-bottom: 6.75rem; }
+  .v-footer { padding-block: 0.9rem 1rem; }
+  .v-footer .site-footer-inner { gap: 0.5rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .v-essay p,
+  .v-trail,
+  .v-trail-level,
+  .v-trail-path li { transition: none; animation: none; }
+}

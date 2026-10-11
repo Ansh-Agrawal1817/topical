@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
   <title>Topical — all you need is a topic</title>
-  <meta name="description" content="Give Topical a topic. It proposes the outline, you approve it, and every section is researched against your document, your notes and the live web — cited, editable, exportable as MDX or LaTeX." />
+  <meta name="description" content="Topical is a writing environment where you and an AI work the same document at once. It researches, drafts, cites and checks; you steer, judge and decide. Every claim traced to its source; Markdown, MDX and LaTeX." />
   <meta name="theme-color" content="#faf9f5" />
 </head>
 
@@ -25,6 +25,7 @@
           : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
         document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = theme;
+        document.documentElement.dataset.glass = localStorage.getItem('topical_glass') === 'tinted' ? 'tinted' : 'clear';
       } catch (e) {
         document.documentElement.dataset.theme = 'light';
       }

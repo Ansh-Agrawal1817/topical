@@ -8,6 +8,7 @@ service of its own, or the network hop that used to reach it.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -19,37 +20,80 @@ from ...schemas.ai import (
     OutlineFromDocumentRequest,
     RefineOutlineRequest,
     SearchTopicsRequest,
+    SourcesRequest,
     TransformRequest,
 )
-from .crawl import crawl_for_topic, crawl_urls
+from .crawl import crawl_for_topic, crawl_url, relevant_passages, search_sources
 from .prompts import (
     outline_from_document_prompt,
     refine_outline_prompt,
     section_prompt,
     strip_fences,
+    strip_wrappers,
     topic_hierarchy_prompt,
     transform_prompt,
+    trim_echo,
 )
-from .providers import AiCredentials, endpoint, generate_content
+from .shape import shape_fragment, shape_section
+from .providers import AiCredentials, check_credentials, endpoint, generate_content, list_models
 
 logger = logging.getLogger(__name__)
 
 
 # ── Parsing what the model sent back ─────────────────────────────────────
-def _parse_topic_json(text: str) -> List[dict]:
-    """Parse a hierarchy the model returned, tolerating a ```json fence.
+def _extract_json(text: str) -> Any:
+    """The first complete JSON value in `text`, wherever it sits.
 
-    The shape is checked rather than assumed. A model that answers with
-    ``{"topics": [...]}`` or a bare string used to reach ``item.setdefault``
-    and raise AttributeError, which the endpoint wrapper could only report as
-    an unexplained 500 — where the truth ("the model returned something
-    malformed, try again") is a 502 it already knows how to say.
+    Models wrap JSON in fences, open with "Here is the outline:", close with
+    a note, or leave a trailing comma — and some return nothing in `content`
+    at all. The scan finds the first `{` or `[` and walks to the bracket that
+    balances it, skipping brackets inside strings, so surrounding prose is
+    ignored instead of fatal. Trailing commas are removed before parsing.
     """
-    clean = re.sub(r"^```json\s*", "", text.strip(), flags=re.I)
-    clean = re.sub(r"\s*```$", "", clean)
-    parsed = json.loads(clean)
+    raw = (text or "").strip()
+    if not raw:
+        raise json.JSONDecodeError("the model returned an empty answer", raw, 0)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+    start = next((i for i, ch in enumerate(raw) if ch in "[{"), -1)
+    if start < 0:
+        raise json.JSONDecodeError("no JSON in the answer", raw, 0)
+    depth = 0
+    in_string = escaped = False
+    for i in range(start, len(raw)):
+        ch = raw[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+        elif ch in "]}":
+            depth -= 1
+            if depth == 0:
+                chunk = re.sub(r",\s*([\]}])", r"\1", raw[start:i + 1])
+                return json.loads(chunk)
+    raise json.JSONDecodeError("the JSON in the answer is cut off", raw, len(raw))
 
-    # Some models wrap the list in an object however plainly they are asked not to.
+
+def _parse_topic_json(text: str) -> List[dict]:
+    """A hierarchy the model returned, as a list of topic objects.
+
+    The shape is checked rather than assumed: a bare string or an object of the
+    wrong shape is a malformed answer (502, try again), not a 500.
+    """
+    parsed = _extract_json(text)
+
+    # The prompt asks for {"topics": [...]} (JSON mode needs an object); older
+    # answers and some models send the bare list.
     if isinstance(parsed, dict):
         for key in ("topics", "outline", "hierarchy", "data"):
             if isinstance(parsed.get(key), list):
@@ -57,7 +101,7 @@ def _parse_topic_json(text: str) -> List[dict]:
                 break
 
     if not isinstance(parsed, list) or not all(isinstance(item, dict) for item in parsed):
-        raise json.JSONDecodeError("expected a JSON list of topic objects", clean, 0)
+        raise json.JSONDecodeError("expected a list of topic objects", str(text)[:200], 0)
 
     for i, item in enumerate(parsed):
         item.setdefault("relevanceScore", max(60, 95 - i * 5))
@@ -65,13 +109,28 @@ def _parse_topic_json(text: str) -> List[dict]:
 
 
 def _parse_json_object(text: str) -> dict:
-    """Parse a JSON object the model returned, tolerating a ``` fence."""
-    clean = re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=re.I)
-    clean = re.sub(r"\s*```$", "", clean)
-    parsed = json.loads(clean)
+    """A JSON object the model returned, wherever in its answer it sits."""
+    parsed = _extract_json(text)
     if not isinstance(parsed, dict):
-        raise json.JSONDecodeError("expected a JSON object", clean, 0)
+        raise json.JSONDecodeError("expected a JSON object", str(text)[:200], 0)
     return parsed
+
+
+_JSON_RETRY = (
+    "\n\nIMPORTANT: your previous answer could not be read as JSON ({error}). Answer again with "
+    "ONLY the JSON value — no prose, no code fence — and keep it short enough to finish."
+)
+
+
+async def _json_answer(prompt: str, credentials: AiCredentials, parse):
+    """Ask for JSON, parse it, and ask once more — sternly — if it does not parse."""
+    text = await generate_content(prompt, credentials, json_mode=True)
+    try:
+        return parse(text)
+    except json.JSONDecodeError as first:
+        logger.info("JSON answer did not parse (%s); asking again", first)
+        text = await generate_content(prompt + _JSON_RETRY.format(error=first.msg), credentials, json_mode=True)
+        return parse(text)
 
 
 def _hierarchy_envelope(parsed: List[dict]) -> dict[str, Any]:
@@ -85,8 +144,19 @@ def _hierarchy_envelope(parsed: List[dict]) -> dict[str, Any]:
 # ── Topic hierarchies ────────────────────────────────────────────────────
 @endpoint
 async def search_topics(req: SearchTopicsRequest, *, credentials: AiCredentials) -> dict:
-    text = await generate_content(topic_hierarchy_prompt(req.query), credentials)
-    return _hierarchy_envelope(_parse_topic_json(text))
+    return _hierarchy_envelope(await _json_answer(topic_hierarchy_prompt(req.query), credentials, _parse_topic_json))
+
+
+@endpoint
+async def verify_key(*, credentials: AiCredentials) -> None:
+    """Check a key and model before the browser saves them."""
+    await check_credentials(credentials)
+
+
+@endpoint
+async def models(*, credentials: AiCredentials) -> dict:
+    """The chat models a key can use, so the picker never offers a retired one."""
+    return {"models": await list_models(credentials)}
 
 
 @endpoint
@@ -94,10 +164,9 @@ async def outline_from_document(
     req: OutlineFromDocumentRequest, *, credentials: AiCredentials
 ) -> dict:
     """Derive an outline from a draft the writer already has open."""
-    text = await generate_content(
-        outline_from_document_prompt(req.document, req.format), credentials
-    )
-    return _hierarchy_envelope(_parse_topic_json(text))
+    return _hierarchy_envelope(await _json_answer(
+        outline_from_document_prompt(req.document, req.format), credentials, _parse_topic_json,
+    ))
 
 
 @endpoint
@@ -119,11 +188,11 @@ async def refine_outline(req: RefineOutlineRequest, *, credentials: AiCredential
     if not indented:
         raise AppError("There is no outline to refine yet.", 400)
 
-    text = await generate_content(
+    parsed = await _json_answer(
         refine_outline_prompt(indented, req.subject or "", req.instruction or ""),
         credentials,
+        _parse_json_object,
     )
-    parsed = _parse_json_object(text)
 
     outline = [
         {"title": str(row.get("title", "")).strip(), "level": int(row.get("level", 1) or 1)}
@@ -151,18 +220,36 @@ async def refine_outline(req: RefineOutlineRequest, *, credentials: AiCredential
 
 # ── Long-form generation ─────────────────────────────────────────────────
 async def _grounding(req: GenerateSectionRequest) -> str:
-    """The reference material a section is written from, per its source.
+    """The reference material a section is written from.
 
-    "llm" leans on the model alone; "web" researches the topic; "urls" reads
-    the pages the writer named.
+    The pages on the writer's context shelf, cut down to the passages about
+    this section (its title and the headings above it) — a thin, relevant
+    excerpt rather than five whole pages per section. Nothing on the shelf
+    means the model writes from its own knowledge. "web" is the old
+    Wikipedia-for-the-topic mode, still honoured for older clients.
     """
     if req.source == "web":
         return await crawl_for_topic(req.topic)
-    if req.source == "urls":
-        if not req.urls:
-            raise AppError("Add at least one URL to generate from.", 400)
-        return await crawl_urls(req.urls)
-    return ""
+    if not req.urls:
+        return ""
+    results = await asyncio.gather(*(crawl_url(url) for url in req.urls[:8]), return_exceptions=True)
+    pages = [r for r in results if isinstance(r, str) and r]
+    if not pages:
+        return ""
+    focus = " ".join([req.topic, *(req.ancestors or []), req.main_topic])
+    return relevant_passages(pages, focus)
+
+
+@endpoint
+async def sources(req: SourcesRequest) -> dict:
+    """Pages worth putting on the context shelf for a subject."""
+    query = req.query.strip()
+    if not query:
+        raise AppError("Name a subject to find sources for.", 400)
+    found = await search_sources(query, max(1, min(req.limit, 8)))
+    if not found:
+        raise AppError("The search returned nothing usable. Try different words.", 502)
+    return {"sources": found}
 
 
 @endpoint
@@ -185,8 +272,14 @@ async def generate_section(req: GenerateSectionRequest, *, credentials: AiCreden
         section_number=req.section_number or "",
         level=req.level,
         instruction=req.instruction or "",
+        style_sample=req.style_sample or "",
+        lead_in=req.lead_in or "",
+        labels=req.labels,
     )
-    return (await generate_content(prompt, credentials)).strip()
+    text = strip_fences((await generate_content(prompt, credentials)).strip(), req.format)
+    # Atomic and renderable, whatever the model did: nothing at or above
+    # this heading's level, an introduction only where sub-sections exist.
+    return shape_section(text, req.format, level=req.level, title=req.topic, has_children=bool(req.children))
 
 
 # ── Inline editing — the selection actions in the editor ─────────────────
@@ -201,6 +294,12 @@ async def transform(req: TransformRequest, *, credentials: AiCredentials) -> str
         before=req.before or "",
         after=req.after or "",
         title=req.title or "",
+        section=req.section or "",
+        outline=req.outline or "",
+        previous=req.previous or "",
+        labels=req.labels,
     )
-    text = await generate_content(prompt, credentials)
-    return strip_fences(text, req.format)
+    text = strip_wrappers(strip_fences(await generate_content(prompt, credentials), req.format))
+    if req.action == "continue":
+        text = trim_echo(req.before or req.selection, text)
+    return shape_fragment(text, req.format, floor=req.level)

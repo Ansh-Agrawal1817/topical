@@ -6,9 +6,10 @@
  * background written inline. Every screen builds from these instead, so the
  * look is defined in one place and changing it changes everywhere.
  */
-import { forwardRef, useState } from 'react';
+import { forwardRef, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { hueFor } from '@/lib/hue';
+import { BrandGlyph } from '@/components/BrandMark';
 
 type Div = React.HTMLAttributes<HTMLDivElement>;
 
@@ -79,6 +80,12 @@ export function DetailEmpty({ children }: { children: React.ReactNode }) {
 export interface PageHeaderProps {
   title: React.ReactNode;
   subtitle?: React.ReactNode;
+  /**
+   * Which part of the product this is — "Community", "Workspace" — set as
+   * the landing page sets its waypoints: the asterism, a rule, the name in
+   * small capitals. The thread that ties every screen back to the front door.
+   */
+  section?: string;
   /** Small uppercase pill above the title. */
   eyebrow?: React.ReactNode;
   /** A plain line above the title — a greeting, a count, a breadcrumb. */
@@ -101,7 +108,7 @@ export interface PageHeaderProps {
  * tabs.
  */
 export function PageHeader({
-  title, subtitle, eyebrow, kicker, actions, level = 'page', className,
+  title, subtitle, eyebrow, kicker, section, actions, level = 'page', className,
 }: PageHeaderProps) {
   if (level === 'section') {
     return (
@@ -119,6 +126,13 @@ export function PageHeader({
     <div className={cn('page-head', className)}>
       <div className="page-head-text">
         {eyebrow && <div className="mb-3"><Chip size="md" caps tone="accent">{eyebrow}</Chip></div>}
+        {section && (
+          <p className="page-waypoint">
+            <BrandGlyph className="page-waypoint-mark" />
+            <span className="page-waypoint-rule" aria-hidden="true" />
+            {section}
+          </p>
+        )}
         {kicker && <p className="page-kicker">{kicker}</p>}
         <h1 className="page-title">{title}</h1>
         {subtitle && <p className="page-sub">{subtitle}</p>}
@@ -314,6 +328,35 @@ export interface IdentityBannerProps {
  * The mesh hue is derived from `seed`, so a person looks the same wherever
  * they appear.
  */
+/**
+ * A person's own patch of sky: a scatter of faint stars and one small
+ * asterism, seeded from their id so it is the same every visit and theirs
+ * alone — the landing page's sky, at the quiet end of its range.
+ */
+function IdentitySky({ seed }: { seed: string }) {
+  const stars = useMemo(() => {
+    let h = 2166136261;
+    for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+    const rand = () => {
+      h = Math.imul(h ^ (h >>> 15), 2246822507);
+      h = Math.imul(h ^ (h >>> 13), 3266489909);
+      return ((h ^= h >>> 16) >>> 0) / 4294967296;
+    };
+    // A wide strip, cropped to fit (`slice`), so stars stay round at any banner width.
+    const field = Array.from({ length: 70 }, () => ({ x: rand() * 400, y: rand() * 100, r: 0.35 + rand() ** 3 * 0.9, o: 0.2 + rand() * 0.6 }));
+    const cx = 250 + rand() * 90, cy = 26 + rand() * 24;
+    const shape = [0, 1, 2, 3].map(k => ({ x: cx + Math.cos(k * 1.7 + rand() * 0.6) * (16 + rand() * 18), y: cy + Math.sin(k * 1.7 + rand() * 0.6) * (10 + rand() * 9) }));
+    return { field, shape };
+  }, [seed]);
+  return (
+    <svg className="identity-sky" viewBox="0 0 400 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      {stars.field.map((star, i) => <circle key={i} cx={star.x} cy={star.y} r={star.r} opacity={star.o} />)}
+      <polyline className="identity-sky-line" points={stars.shape.map(p => `${p.x},${p.y}`).join(' ')} />
+      {stars.shape.map((p, i) => <circle key={`a${i}`} className="identity-sky-star" cx={p.x} cy={p.y} r={1.1} />)}
+    </svg>
+  );
+}
+
 export function IdentityBanner({
   seed, name, handle, bio, bioFallback = 'No bio yet.',
   avatarUrl, meta, actions, className,
@@ -321,6 +364,7 @@ export function IdentityBanner({
   return (
     <div className={cn('identity-banner', className)} style={{ ['--id-h' as string]: String(hueFor(seed)) }}>
       <div className="identity-mesh" aria-hidden="true" />
+      <IdentitySky seed={seed ?? name} />
       <div className="identity-inner">
         <Avatar seed={seed} src={avatarUrl} name={name} size="xl" />
 

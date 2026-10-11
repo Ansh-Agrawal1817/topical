@@ -18,10 +18,12 @@ export interface SearchFieldProps extends Omit<InputProps, "leading" | "trailing
   /** Escape empties the field. Off inside a dialog, where Escape closes it. */
   clearOnEscape?: boolean
   clearLabel?: string
+  /** Shown at the end of the field while it is empty — a shortcut that reaches it, usually. */
+  hint?: React.ReactNode
 }
 
 export const SearchField = React.forwardRef<HTMLInputElement, SearchFieldProps>(
-  ({ value, onValueChange, grow, clearOnEscape, clearLabel = "Clear search", className, onKeyDown, ...props }, ref) => (
+  ({ value, onValueChange, grow, clearOnEscape, clearLabel = "Clear search", hint, className, onKeyDown, ...props }, ref) => (
     <Input
       ref={ref}
       type="text"
@@ -36,7 +38,7 @@ export const SearchField = React.forwardRef<HTMLInputElement, SearchFieldProps>(
         <IconButton size="sm" onClick={() => onValueChange("")} aria-label={clearLabel}>
           <X className="h-3.5 w-3.5" />
         </IconButton>
-      ) : null}
+      ) : hint ?? null}
       className={[grow ? "search-field--grow" : "", className ?? ""].join(" ").trim() || undefined}
       {...props}
     />

@@ -187,18 +187,28 @@ export function sectionWords(
 ): SectionWordCounts {
   const own = new Map<number, number>();
   const subtree = new Map<number, number>();
+  const { nodes, entries } = tree;
 
-  tree.entries.forEach(entry => {
-    const newline = content.indexOf('\n', entry.node.offset);
+  // Every stretch of text is counted exactly once: each heading's line, and
+  // the prose between it and the next heading of any level. A subtree is then
+  // a sum over its rows rather than a second count of the same text — this
+  // runs on the document after every pause in typing, and counting each
+  // parent's whole subtree again cost a scan per level of nesting.
+  const heading: number[] = [];
+  const body: number[] = [];
+  nodes.forEach((node, index) => {
+    const newline = content.indexOf('\n', node.offset);
     const from = newline === -1 ? content.length : newline;
+    const next = nodes[index + 1];
+    heading.push(countWords(content.slice(node.offset, from), format));
+    body.push(countWords(content.slice(from, next ? next.offset : content.length), format));
+    own.set(node.offset, body[index]);
+  });
 
-    // Own prose stops at the next heading of *any* level.
-    const nextAny = tree.nodes[entry.index + 1];
-    own.set(entry.node.offset, countWords(content.slice(from, nextAny ? nextAny.offset : content.length), format));
-
-    // The subtree stops at the next heading that is not below this one.
-    const nextPeer = tree.nodes[entry.subtreeEnd];
-    subtree.set(entry.node.offset, countWords(content.slice(from, nextPeer ? nextPeer.offset : content.length), format));
+  entries.forEach(entry => {
+    let total = body[entry.index];
+    for (let i = entry.index + 1; i < entry.subtreeEnd; i += 1) total += heading[i] + body[i];
+    subtree.set(entry.node.offset, total);
   });
 
   return { own, subtree };
@@ -211,6 +221,46 @@ interface DigestOptions {
   focus?: number | null;
   /** Rough cap, so a 200-section document does not eat the context window. */
   maxChars?: number;
+  /**
+   * The opening words of a written section, for the rows around `focus`.
+   * Titles alone tell the model what a neighbour is *called*; a dozen words of
+   * what it actually says tell it what ground is already covered.
+   */
+  gist?: (node: OutlineNode) => string;
+}
+
+/**
+ * The rows a section should be aware of: its parent, its siblings, its
+ * children, and the sections immediately before and after it in reading
+ * order. Everything further away is summarised by its title alone.
+ */
+export function neighbourhood(tree: OutlineTree, index: number): Set<number> {
+  const near = new Set<number>();
+  const entry = tree.entries[index];
+  if (!entry) return near;
+  if (entry.parent !== null) near.add(entry.parent);
+  const siblings = entry.parent === null ? tree.roots : tree.entries[entry.parent].children;
+  siblings.forEach(i => near.add(i));
+  entry.children.forEach(i => near.add(i));
+  if (index > 0) near.add(index - 1);
+  if (index + 1 < tree.nodes.length) near.add(index + 1);
+  near.delete(index);
+  return near;
+}
+
+/** The first `words` words of a section's own prose, markup stripped — a gist, not a quote. */
+export function sectionGist(content: string, node: OutlineNode, next: OutlineNode | undefined, words = 18): string {
+  const start = content.indexOf('\n', node.offset);
+  if (start < 0) return '';
+  const body = content.slice(start, next ? next.offset : content.length)
+    .replace(/\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]/g, ' [equation] ')
+    .replace(/```[\s\S]*?```/g, ' [code] ')
+    .replace(/\\[a-zA-Z]+\*?(\[[^\]]*\])?/g, ' ')
+    .replace(/[#*_`>{}|$\\-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const cut = body.split(' ').slice(0, words);
+  return cut.length ? cut.join(' ') + (body.split(' ').length > words ? '…' : '') : '';
 }
 
 /**
@@ -226,16 +276,20 @@ interface DigestOptions {
  * these, so do not write it again.
  */
 export function outlineDigest(tree: OutlineTree, options: DigestOptions = {}): string {
-  const { words, focus = null, maxChars = 4000 } = options;
+  const { words, focus = null, maxChars = 4000, gist } = options;
   const lines: string[] = [];
+  const near = focus === null ? new Set<number>() : neighbourhood(tree, focus);
 
   for (const entry of tree.entries) {
     const title = entry.node.label.trim();
     if (!title) continue;
     const indent = '  '.repeat(entry.path.length - 1);
-    const state = words ? (words(entry.node) > 0 ? ' [written]' : ' [not written yet]') : '';
+    const written = words ? words(entry.node) > 0 : false;
+    const state = words ? (written ? ' [written]' : ' [not written yet]') : '';
     const here = entry.index === focus ? '   <-- the section you are writing now' : '';
-    lines.push(`${indent}${pathNumber(entry)}. ${title}${state}${here}`);
+    // A neighbour that is written says, in a few words, what it already covers.
+    const said = gist && written && near.has(entry.index) ? gist(entry.node) : '';
+    lines.push(`${indent}${pathNumber(entry)}. ${title}${state}${here}${said ? ` — says: "${said}"` : ''}`);
   }
 
   const text = lines.join('\n');

@@ -48,15 +48,17 @@ function Choice<T extends string>({
  * about, and it is the last moment they can be changed cheaply.
  */
 export function ExportPdfDialog({
-  title, author, getHtml, onClose,
+  title, author, getHtml, onClose, initial,
 }: {
+  /** Where the options start — the document's own style. */
+  initial?: Partial<PdfOptions>;
   title: string;
   author?: string | null;
   /** Read lazily: the preview keeps rendering while this dialog is open. */
   getHtml: () => string | null;
   onClose: () => void;
 }) {
-  const [options, setOptions] = useState<PdfOptions>(PDF_DEFAULTS);
+  const [options, setOptions] = useState<PdfOptions>({ ...PDF_DEFAULTS, ...initial });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -84,7 +86,7 @@ export function ExportPdfDialog({
   };
 
   return (
-    <Modal label="Export PDF" onClose={onClose} overlayClassName="post-detail-overlay">
+    <Modal label="Export PDF" onClose={onClose} overlayClassName="modal-overlay">
       <form className="pdf-dialog" onSubmit={submit}>
         <PanelHeader size="md" icon={<FileDown className="h-4 w-4" />} title="Export PDF" onClose={onClose} />
 

@@ -11,8 +11,8 @@
 
 .surface {
   border-radius: var(--radius-lg);
-  border: 1px solid var(--line);
-  background: var(--surface);
+  border: 1px solid var(--material-line);
+  background: var(--material-fill);
   box-shadow: var(--shadow-xs);
   transition: border-color var(--dur-base) var(--ease-out),
               background var(--dur-base) var(--ease-out),
@@ -64,21 +64,12 @@
    accent border when selected, a tinted wash on the feature tile — is
    declared after this and still wins on specificity or order.
    ═══════════════════════════════════════════════════════════════════════ */
-.step-card,
-.bento-item,
-.person-card,
-.doc-card,
-.doc-row,
 .pub-row,
 .provider-tile,
 .brand-card,
-.community-card,
-.lesson-community-card,
-.preview-window,
-.identity-banner,
-.forum-skeleton {
-  background: var(--surface);
-  border: 1px solid var(--line);
+.identity-banner {
+  background: var(--material-fill);
+  border: 1px solid var(--material-line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xs);
   transition: border-color var(--dur-base) var(--ease-out),
@@ -88,7 +79,6 @@
 
 /* Rows are cards laid flat: same material, tighter corner, because a 14px
    radius on a 56px-tall strip reads as a lozenge. */
-.doc-row,
 .pub-row,
 .model-option {
   border-radius: var(--radius-md);
@@ -102,16 +92,9 @@
    holds it until something else is tapped, so an ungated lift leaves one
    card in a grid standing up for no reason long after the finger has gone. */
 @media (hover: hover) and (pointer: fine) {
-  .step-card:hover,
-  .bento-item:hover,
-  .person-card:hover,
-  .doc-card:hover,
-  .doc-row:hover,
   .pub-row:hover,
   .provider-tile:hover,
-  .brand-card:hover,
-  .community-card:hover,
-  .lesson-community-card:hover {
+  .brand-card:hover {
     border-color: var(--line-strong);
     box-shadow: var(--shadow);
     transform: translateY(-2px);
@@ -119,7 +102,6 @@
 
   /* Rows stay put. A 700px-wide strip that jumps 2px on hover makes a list
      look like it is twitching. */
-  .doc-row:hover,
   .pub-row:hover {
     transform: none;
   }
@@ -130,14 +112,9 @@
    transition that half-second of silence is where a second tap comes from.
    The scale is smaller than a button's: the same 3% on a 340px card is a
    visible jolt, where on a 90px button it is a nudge. */
-.doc-card:active,
-.doc-row:active,
 .pub-row:active,
-.person-card:active,
 .provider-tile:active,
-.brand-card:active,
-.community-card:active,
-.lesson-community-card:active {
+.brand-card:active {
   transform: scale(0.994);
   transition-duration: var(--dur-press);
 }
@@ -154,16 +131,11 @@
    the whole route change. `@media (hover: none)` is the honest test for it —
    not viewport width, which says nothing about the pointer. */
 @media (hover: none) {
-  .step-card:hover,
-  .bento-item:hover,
-  .person-card:hover,
-  .doc-card:hover,
-  .doc-row:hover,
   .pub-row:hover,
   .provider-tile:hover,
   .brand-card:hover,
-  .community-card:hover,
-  .lesson-community-card:hover {
+  .ws-card:hover,
+  .doc-tile:hover {
     transform: none;
   }
   .btn:hover .cta-arrow {
@@ -392,3 +364,291 @@
   .refreshing-dot { animation: none; opacity: 0.8; }
 }
 
+
+/* ── Depth (components/ui/depth.tsx) ──
+   Scroll position in, transform out. The component writes --in / --out / --q
+   and these rules are the only place they turn into motion, so every 3D
+   entrance on the marketing pages is seen through the one --perspective.
+
+   The resting values are declared here, not by the component: with reduced
+   motion (or before script) nothing writes them and every block sits flat.
+   `perspective()` lives inside each transform rather than on a parent, so a
+   Depth works wherever it is dropped and never flattens its neighbours.
+
+   The short transition is not decoration: a mouse wheel moves the page in
+   ~100px notches, and without it each notch is a visible jump. */
+.depth {
+  --in: 1;
+  --out: 0;
+  --q: 0.5;
+  transition-property: transform, opacity;
+  transition-duration: var(--dur-depth);
+  transition-timing-function: var(--ease-out);
+}
+.depth--rise {
+  opacity: var(--in);
+  transform-origin: 50% 100%;
+  transform: perspective(var(--perspective))
+             translate3d(0, calc((1 - var(--in)) * 72px), calc((1 - var(--in)) * -260px))
+             rotateX(calc((1 - var(--in)) * 18deg));
+}
+.depth--tilt {
+  transform-origin: 50% 100%;
+  transform: perspective(var(--perspective))
+             translate3d(0, 0, calc((1 - var(--in)) * -140px))
+             rotateX(calc((1 - var(--in)) * 32deg));
+}
+.depth--recede {
+  opacity: calc(1 - var(--out));
+  transform: perspective(var(--perspective))
+             translate3d(0, calc(var(--out) * -48px), calc(var(--out) * 220px));
+}
+.depth--pass {
+  opacity: calc(1 - var(--out) * 0.85);
+  transform-origin: 50% 100%;
+  transform: perspective(var(--perspective))
+             translate3d(0, calc(var(--out) * -36px), calc((1 - var(--in)) * -160px + var(--out) * 200px))
+             rotateX(calc((1 - var(--in)) * 26deg - var(--out) * 10deg));
+}
+.depth--swing-start,
+.depth--swing-end {
+  opacity: var(--in);
+  transform: perspective(var(--perspective))
+             translate3d(calc((1 - var(--in)) * var(--swing-x)), 0, calc((1 - var(--in)) * -160px))
+             rotateY(calc((1 - var(--in)) * var(--swing-r)));
+}
+.depth--swing-start { --swing-x: -56px; --swing-r: 22deg;  transform-origin: 0% 50%; }
+.depth--swing-end   { --swing-x: 56px;  --swing-r: -22deg; transform-origin: 100% 50%; }
+.depth--track { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .depth { opacity: 1; transform: none; transition: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Liquid Glass primitives (2026-10-10) — switch, choice list, settings
+   groups, side nav, steps
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Switch (ui/switch.tsx) ── A capsule track and a glass bead. */
+.switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 46px;
+  min-width: 46px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--material-line);
+  background: var(--ink-a12);
+  box-shadow: inset 0 1px 2px rgb(var(--shadow-rgb) / 0.12);
+  cursor: pointer;
+  transition: background-color var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out);
+}
+.switch[data-checked='true'] { background: var(--accent-400); border-color: rgb(var(--accent-rgb) / 0.9); }
+.switch:disabled { opacity: 0.5; cursor: default; }
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: #fff;
+  box-shadow: 0 2px 5px rgb(0 0 0 / 0.22), inset 0 -1px 0 rgb(0 0 0 / 0.06);
+  transition: transform var(--dur-slow) var(--ease-spring), width var(--dur-fast) var(--ease-out);
+}
+.switch[data-checked='true'] .switch-thumb { transform: translateX(18px); }
+/* Pressed, the bead stretches toward where it is going, as on iOS. */
+.switch:active:not(:disabled) .switch-thumb { width: 27px; }
+.switch[data-checked='true']:active:not(:disabled) .switch-thumb { transform: translateX(13px); }
+
+/* ── Choice list (ui/choice-list.tsx) ── */
+.choice-list { display: flex; flex-direction: column; gap: 4px; }
+.choice-list--grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 8px; }
+.choice-list--scroll {
+  max-height: calc(var(--choice-rows) * 44px + 8px);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--material-line);
+  border-radius: var(--radius-md);
+  background: var(--ink-a02);
+}
+.choice-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  text-align: left;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition-property: var(--transition-control);
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-out);
+}
+.choice-item:hover { background: var(--ink-a04); }
+.choice-item:active { transform: scale(0.99); transition-duration: var(--dur-press); }
+.choice-item[data-selected='true'] {
+  background: var(--glass-lens);
+  border-color: var(--accent-line);
+  box-shadow: var(--rim), 0 2px 8px -4px rgb(var(--shadow-rgb) / 0.2);
+  color: var(--ink);
+}
+.choice-list--grid .choice-item {
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-color: var(--material-line);
+  border-radius: var(--radius-md);
+  background: var(--glass-control);
+  box-shadow: var(--rim);
+}
+.choice-list--grid .choice-item[data-selected='true'] { background: var(--glass-lens); border-color: var(--accent-line); }
+.choice-dot {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--control-line);
+  transition: border-color var(--dur-fast) var(--ease-out), border-width var(--dur-fast) var(--ease-out);
+}
+.choice-item[data-selected='true'] .choice-dot { border: 5px solid var(--accent-400); }
+.choice-text { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.choice-label { overflow: hidden; font-size: var(--text-sm); font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.choice-description { font-size: var(--text-xs); line-height: 1.45; color: var(--ink-faint); }
+.choice-trailing { display: flex; flex-shrink: 0; align-items: center; gap: 4px; }
+.choice-item--mono .choice-label { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 500; }
+
+/* ── Settings groups (ui/settings.tsx) ── */
+.settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.settings-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  color: var(--ink);
+}
+.settings-description { margin-top: 0.35rem; max-width: 36rem; font-size: var(--text-base); line-height: 1.55; color: var(--ink-muted); }
+.settings-header-actions { flex-shrink: 0; }
+
+.settings-group { margin-bottom: 1.75rem; }
+.settings-group-head { margin: 0 0 0.6rem 0.25rem; }
+.settings-group-title {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.settings-group-description { margin-top: 0.2rem; font-size: var(--text-sm); line-height: 1.5; color: var(--ink-muted); }
+.settings-sheet {
+  overflow: hidden;
+  border: 1px solid var(--material-line);
+  border-radius: var(--radius-lg);
+  background: var(--material-fill);
+  box-shadow: var(--shadow-xs);
+}
+.settings-sheet > * + * { border-top: 1px solid var(--material-line); }
+.settings-group-footer {
+  margin: 0.6rem 0.25rem 0;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--ink-faint);
+}
+.settings-pad { padding: 1.25rem; }
+
+.settings-row { padding: 0.95rem 1.25rem; }
+.settings-row-main { display: flex; align-items: center; justify-content: space-between; gap: 1.25rem; }
+.settings-row--stacked .settings-row-main { flex-direction: column; align-items: stretch; }
+.settings-row-text { min-width: 0; }
+.settings-row-label { font-size: var(--text-base); font-weight: 500; color: var(--ink); }
+.settings-row-hint { margin-top: 0.2rem; max-width: 30rem; font-size: var(--text-xs); line-height: 1.5; color: var(--ink-faint); }
+.settings-row-control { display: flex; flex-shrink: 0; align-items: center; }
+.settings-row-body { margin-top: 0.85rem; }
+.settings-value { max-width: 22rem; overflow: hidden; font-size: var(--text-sm); white-space: nowrap; text-overflow: ellipsis; color: var(--ink-2); }
+.settings-value--mono { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--ink-faint); }
+@media (max-width: 560px) {
+  .settings-row-main { flex-direction: column; align-items: flex-start; gap: 0.7rem; }
+  .settings-value { max-width: 100%; }
+}
+
+/* ── Side nav (ui/side-nav.tsx) ── */
+.side-nav { display: flex; flex-direction: column; gap: 2px; }
+.side-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 10px 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-2);
+  text-decoration: none;
+  white-space: nowrap;
+  transition-property: var(--transition-control);
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-out);
+}
+.side-nav-item:hover { background: var(--ink-a04); color: var(--ink); }
+.side-nav-item:active { transform: scale(0.98); transition-duration: var(--dur-press); }
+.side-nav-item[data-active='true'] {
+  background: var(--glass-lens);
+  border-color: var(--material-line);
+  box-shadow: var(--rim), 0 2px 8px -4px rgb(var(--shadow-rgb) / 0.2);
+  color: var(--ink);
+  font-weight: 600;
+}
+.side-nav-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25);
+}
+.side-nav-icon--accent { background: var(--accent-400); color: var(--accent-ink); }
+.side-nav-icon--latex { background: var(--latex-500); color: var(--surface); }
+.side-nav-icon--success { background: var(--status-success); color: var(--surface); }
+.side-nav-icon--warning { background: var(--status-warning); color: var(--surface); }
+.side-nav-icon--neutral { background: var(--ink-muted); color: var(--surface); }
+
+/* ── Steps (ui/steps.tsx) ── */
+.steps { display: flex; flex-direction: column; gap: 0.45rem; margin: 0; padding: 0; list-style: none; counter-reset: steps; }
+.steps-item {
+  position: relative;
+  padding-left: 1.85rem;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--ink-2);
+  counter-increment: steps;
+}
+.steps-item::before {
+  content: counter(steps);
+  position: absolute;
+  top: 0.05rem;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent-600);
+  background: var(--accent-soft);
+}

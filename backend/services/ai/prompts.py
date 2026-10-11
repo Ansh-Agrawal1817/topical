@@ -9,16 +9,48 @@ land in MDX and be forgotten in LaTeX.
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
-FORMAT_RULES = {
+#: What Topical's own renderers can draw. Output outside this subset does not
+#: fail loudly — it renders as a red "issue", a raw backslash command, or a
+#: blank where an equation should be — so the prompt states the subset in
+#: plain terms and `shape_section` repairs what still slips through.
+RENDER_RULES = {
     "mdx": (
-        "Write in MDX (Markdown with optional JSX, no custom components). "
-        "Use $...$ for inline math and $$...$$ for display math. No frontmatter."
+        "Markdown only, as rendered by GitHub-flavoured Markdown + KaTeX: headings (#), "
+        "paragraphs, **bold**, *italic*, `code`, fenced code blocks with a language tag, "
+        "- / 1. lists, > quotes, GFM tables (with a |---| separator row), [links](https://…). "
+        "No HTML tags, no JSX or components, no import/export lines, no frontmatter, "
+        "no Mermaid. Maths only as $...$ inline and $$...$$ on lines of their own — never "
+        "\\( \\) or \\[ \\] — using only commands KaTeX supports (no \\label, \\ref, "
+        "\\begin{align} outside $$, \\newcommand). Every $ and $$ must close."
     ),
     "latex": (
-        "Write in LaTeX body syntax only — no \\documentclass, no \\begin{document}, "
-        "no preamble. Use \\section/\\subsection for structure, itemize/enumerate for "
-        "lists, and equation/align for display math."
+        "LaTeX body only, as rendered by Topical's subset renderer: \\section family, "
+        "\\textbf/\\textit/\\emph/\\texttt, \\href, \\footnote, itemize/enumerate/description, "
+        "quote, center, table + tabular (with \\hline), figure with \\caption, verbatim/lstlisting, "
+        "theorem/lemma/definition/example/remark/proof, and maths in $...$, \\[...\\], equation, "
+        "align, gather, cases, matrix/pmatrix/bmatrix. No preamble, \\usepackage, \\documentclass, "
+        "\\begin{document}, \\maketitle, TikZ, algorithm/algorithmic, minipage, or custom "
+        "packages. No \\includegraphics of files that do not exist, and no \\cite (there is no "
+        "bibliography). Every \\begin has its \\end, every brace and $ closes, and "
+        "special characters in prose are escaped (\\%, \\&, \\_, \\#, \\$)."
     ),
+}
+
+#: How cross-references work in Topical's LaTeX — resolved to real numbers in
+#: both the live editor and the read view (preview/latex/labels.ts).
+LATEX_REFERENCES = (
+    "Cross-references: give every table, figure and numbered equation you write a label with "
+    "a short unique slug — \\label{tab:…} right after \\caption inside the table, \\label{fig:…} "
+    "after the figure's \\caption, \\label{eq:…} inside the equation/align — and put "
+    "\\label{sec:…} on the line after the section heading. Refer to them in the prose as "
+    "Table~\\ref{tab:…}, Figure~\\ref{fig:…}, \\eqref{eq:…} or Section~\\ref{sec:…} (always with ~ "
+    "before \\ref). Only reference a label you define in this text or one listed as already in "
+    "the document, and never define a listed label again."
+)
+
+FORMAT_RULES = {
+    "mdx": "Write in Markdown for Topical. " + RENDER_RULES["mdx"],
+    "latex": "Write in LaTeX body syntax for Topical. " + RENDER_RULES["latex"] + " " + LATEX_REFERENCES,
 }
 
 
@@ -136,17 +168,17 @@ class _SectionFormat:
 SECTION_FORMATS: Dict[str, _SectionFormat] = {
     "mdx": _SectionFormat(
         name="MDX",
-        syntax_rule="MDX format (Markdown with optional JSX, no custom components)",
+        syntax_rule=RENDER_RULES["mdx"],
         heading=_mdx_heading,
         deeper_rule=lambda level: f"3-5 sub-headings one level deeper ({'#' * min(level + 1, 6)})",
         devices="Use bullet points, numbered lists, code blocks where appropriate",
-        extra_rules=("Use $...$ / $$...$$ for any mathematics", "No frontmatter"),
+        extra_rules=(),
         closing="Return ONLY the MDX content",
         intro_ban="No sub-headings, no lists, no code blocks.",
     ),
     "latex": _SectionFormat(
         name="LaTeX",
-        syntax_rule="Pure LaTeX body syntax (NOT a full document — no \\documentclass, no \\begin{document})",
+        syntax_rule=RENDER_RULES["latex"] + " " + LATEX_REFERENCES,
         heading=_latex_heading,
         deeper_rule=lambda level: f"3-5 subsections one level deeper (\\{_latex_command(level + 1)}{{}})",
         devices="Use itemize/enumerate, equations, tables where appropriate",
@@ -159,6 +191,59 @@ SECTION_FORMATS: Dict[str, _SectionFormat] = {
 
 def section_format(fmt: str) -> _SectionFormat:
     return SECTION_FORMATS.get(fmt, SECTION_FORMATS["mdx"])
+
+
+def _voice(sample: str) -> str:
+    """Prose already in the document, for a new section to sound like.
+
+    Without it every section is written in the model's own default register,
+    so a document drafted by hand and then extended by the AI changes voice
+    at every generated heading — and notation with it: one section writes
+    $v$, the next writes "velocity v".
+    """
+    sample = sample.strip()
+    if not sample:
+        return ""
+    return (
+        "\nHere is some of the document as already written. Match its voice, register, "
+        "sentence length, terminology and the way it writes notation — the new section "
+        "should read as the same author's:\n"
+        f"<sample>\n{sample[:900]}\n</sample>\n"
+    )
+
+
+def _labels_block(labels: Optional[List[str]]) -> str:
+    """Labels already in the document, so new prose can point at them — and not reuse them."""
+    if not labels:
+        return ""
+    listed = "\n".join("- " + label for label in labels[:40])
+    return (
+        "\nLabels already defined in the document (you may reference these with \\ref/\\eqref; "
+        f"do not define them again):\n<labels>\n{listed}\n</labels>\n"
+    )
+
+
+def _lead_in(text: str) -> str:
+    """The end of the text just before this section, so it continues rather than restarts."""
+    text = text.strip()
+    if not text:
+        return ""
+    return (
+        "\nThe document just before this section ends like this — pick up from it; do not "
+        f"repeat it or re-introduce what it already said:\n<before>\n…{text[-700:]}\n</before>\n"
+    )
+
+
+def _atomic_rule(spec: "_SectionFormat", level: int, has_children: bool) -> str:
+    """The structural promise every section keeps, spelled in the document's own markup."""
+    own = spec.heading("…", level).replace("…", "").strip()
+    deeper = spec.heading("…", min(level + 1, 6)).replace("…", "").strip()
+    if has_children:
+        return (f"Write prose only below the heading: no headings of any level. "
+                f"The sub-sections already exist and are written separately.")
+    return (f"This section is one unit of the document. Any heading you add must be deeper "
+            f"than {own} (use {deeper} or deeper) — never {own} or anything above it, which "
+            f"would split this section or close its parent.")
 
 
 def _rules_block(rules: List[str]) -> str:
@@ -176,6 +261,9 @@ def section_prompt(
     section_number: str = "",
     level: int = 1,
     instruction: str = "",
+    style_sample: str = "",
+    lead_in: str = "",
+    labels: Optional[List[str]] = None,
 ) -> str:
     """Ask for one section of a document, in whichever notation it is written.
 
@@ -189,7 +277,15 @@ def section_prompt(
     ("400-800 words" against "keep this brief") is the one they meant to break.
     """
     spec = section_format(fmt)
-    ctx = f"\nUse this reference material:\n<context>\n{context}\n</context>\n" if context else ""
+    ctx = (
+        "\nReference material from the writer's sources — use what is relevant, state facts "
+        "only as far as it supports them, and do not copy it verbatim:\n"
+        f"<sources>\n{context}\n</sources>\n"
+    ) if context else ""
+    ctx += _lead_in(lead_in)
+    ctx += _labels_block(labels) if fmt == "latex" else ""
+    ctx += _voice(style_sample)
+    atomic = _atomic_rule(spec, level, bool(children))
     heading = spec.heading(topic, level)
     #: Stated as an override rather than merged into the list: a request that
     #: conflicts with a default is the writer correcting the default.
@@ -211,6 +307,7 @@ def section_prompt(
             + _rules_block([
                 spec.syntax_rule,
                 f"Start with {heading}",
+                atomic,
                 f"Then 80-150 words of plain prose. {spec.intro_ban}",
                 "Orient the reader: what this section covers, why it matters, and how the "
                 "sub-sections above relate to each other.",
@@ -234,6 +331,7 @@ def section_prompt(
         + _rules_block([
             spec.syntax_rule,
             f"Start with {heading}",
+            atomic,
             spec.deeper_rule(level),
             f'STRICTLY relevant to "{topic}". Do not overlap with or redundantly cover other '
             "sections in the outline — each of them is written separately.",
@@ -254,34 +352,67 @@ def section_prompt(
 #: which capped every generated outline at two levels however the model was
 #: asked — the rail draws six, and a third level had nowhere to land.
 _NESTED_JSON_SHAPE = (
-    'A subtopic is either a name, or an object with its own subtopics:\n'
-    '[{"topic": "Main topic", "subtopics": ["Sub 1", '
-    '{"topic": "Sub 2", "subtopics": ["Sub 2a", "Sub 2b"]}]}]\n'
+    'A JSON object with a "topics" list. A subtopic is either a name, or an object with its own subtopics:\n'
+    '{"topics": [{"topic": "Main topic", "subtopics": ["Sub 1", '
+    '{"topic": "Sub 2", "subtopics": ["Sub 2a", "Sub 2b"]}]}]}\n'
+    'Keep it compact: names only, no descriptions, no commentary before or after the JSON.\n'
 )
 
 
 def topic_hierarchy_prompt(query: str) -> str:
+    """An outline for a document about ``query``.
+
+    The old wording asked for "a hierarchy for learning about" the subject and
+    got a syllabus back: "Introduction to X", "Overview", "Conclusion" — rows
+    that say nothing about what the section will hold, and that every subject
+    shares. The rules below are the ones an editor applies to a contents page.
+    """
     return (
-        f'Generate a structured topic hierarchy for learning about "{query}".\n\n'
+        f'Plan the outline of a substantial written document about "{query}".\n\n'
         f"Return ONLY valid JSON in this format:\n"
         f"{_NESTED_JSON_SHAPE}\n"
-        f"Rules: 4-6 main topics, 2-4 subtopics each, logical progression, clear names. "
-        f"Nest a third level only where a subtopic genuinely splits into parts worth "
-        f"writing separately — never to pad the outline out. Depth 3 at most."
+        "Rules:\n"
+        "- 4-6 main sections, 2-4 subsections each, in an order that builds: each section can rely "
+        "on the ones before it.\n"
+        "- Name what each section is about, specifically. No generic rows such as \"Introduction\", "
+        "\"Overview\", \"Background\", \"Conclusion\" or \"Summary\" unless the subject itself calls for one.\n"
+        "- Siblings are phrased in parallel and do not overlap; no subsection repeats its parent's name.\n"
+        "- Keep names under about six words, so they fit a sidebar.\n"
+        "- Nest a third level only where a subsection genuinely splits into parts worth writing "
+        "separately — never to pad the outline out. Depth 3 at most."
     )
 
 
+def _headings_of(document: str) -> str:
+    """Every heading line in a document, in order — its existing shape, whatever its length."""
+    lines = []
+    for line in document.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#") or stripped.startswith("\\section") or stripped.startswith("\\subsection") \
+                or stripped.startswith("\\subsubsection") or stripped.startswith("\\chapter"):
+            lines.append(stripped)
+    return "\n".join(lines[:200])
+
+
 def outline_from_document_prompt(document: str, fmt: str) -> str:
-    """Reverse-engineer a working outline from a draft the user already has."""
+    """Reverse-engineer a working outline from a draft the user already has.
+
+    A long draft is cut to its first 12,000 characters, so its headings are
+    sent separately and in full: the model sees the whole of the existing
+    structure even when it only reads the start of the prose.
+    """
+    headings = _headings_of(document)
+    shape = f"\nIts headings so far, in order:\n<headings>\n{headings}\n</headings>\n" if headings else ""
     return (
-        "Read this document and propose the outline it is reaching for — including "
-        "the sections it is missing.\n\n"
-        f"<document>\n{document[:12000]}\n</document>\n\n"
+        "Read this draft and propose the outline it is reaching for — keeping the sections that work, "
+        "in their order, and adding the ones it is missing.\n\n"
+        f"<document>\n{document[:12000]}\n</document>\n"
+        f"{shape}\n"
         "Return ONLY valid JSON in this format:\n"
         f"{_NESTED_JSON_SHAPE}\n"
-        "Rules: 3-6 main sections, 2-4 subtopics each, follow the document's own "
-        "vocabulary, keep names short enough to fit a sidebar, and nest a third "
-        "level only where the draft itself already goes that deep."
+        "Rules: 3-6 main sections, 2-4 subtopics each; follow the draft's own vocabulary; keep names "
+        "short enough to fit a sidebar; no generic \"Introduction\"/\"Conclusion\" rows the draft does not "
+        "already have; and nest a third level only where the draft itself already goes that deep."
     )
 
 
@@ -330,21 +461,50 @@ def refine_outline_prompt(outline: str, subject: str = "", instruction: str = ""
 # ---------------------------------------------------------------------------
 # Each entry is (instruction, returns_replacement). Actions that return a
 # replacement have their output swapped into the document; the rest are shown
-# as an answer the writer reads and dismisses.
+# as an answer the writer reads and dismisses. `{words}` is the passage's
+# length, filled in when the prompt is built, so "shorter" and "longer" are
+# targets rather than moods.
 TRANSFORM_ACTIONS = {
-    "improve":  ("Rewrite the passage so it reads more clearly and precisely. Keep the author's voice, meaning, and level of detail.", True),
-    "expand":   ("Expand the passage with concrete detail, examples, and reasoning. Roughly double its length without padding.", True),
-    "shorten":  ("Tighten the passage to about half its length. Keep every substantive point; cut hedging and repetition.", True),
-    "grammar":  ("Fix spelling, grammar, and punctuation. Change nothing else — not word choice, not structure.", True),
-    "simplify": ("Rewrite the passage in plain language a first-year student could follow. Keep it accurate; define jargon inline.", True),
-    "academic": ("Rewrite the passage in a formal academic register: precise, impersonal, no contractions.", True),
+    "improve":  ("Rewrite the passage so it reads more clearly and precisely. Keep the author's voice, claims, structure "
+                 "(paragraphs, lists) and level of detail; fix vague wording, clumsy rhythm and buried points. Do not add facts.", True),
+    "expand":   ("Expand the passage with concrete detail, examples and reasoning, to about {double} words. Every added "
+                 "sentence must earn its place — no padding, no restating.", True),
+    "shorten":  ("Tighten the passage to about {half} words. Keep every substantive point and every citation; cut hedging, "
+                 "repetition and throat-clearing.", True),
+    "grammar":  ("Fix spelling, grammar and punctuation. Change nothing else — not word choice, not structure, not markup.", True),
+    "simplify": ("Rewrite the passage in plain language a first-year student could follow. Keep it accurate; define any "
+                 "jargon the first time it appears.", True),
+    "academic": ("Rewrite the passage in a formal academic register: precise, impersonal, hedged where the evidence is, "
+                 "no contractions.", True),
     "bullets":  ("Restructure the passage as a tight bulleted list, one idea per bullet, preserving all information.", True),
-    "table":    ("Restructure the information in the passage as a table with clear column headers.", True),
-    "math":     ("Rewrite the passage with the mathematics set properly: real notation, display equations where they aid reading, and defined symbols.", True),
-    "continue": ("Continue writing from where the passage stops. Match its voice, format, and depth. Return ONLY the new continuation, not the existing text.", True),
-    "explain":  ("Explain the passage: what it says, why it matters, and anything it gets wrong or leaves out. Be specific and brief.", False),
+    "table":    ("Restructure the information in the passage as a table with clear column headers. Keep every value.", True),
+    "math":     ("Rewrite the passage with the mathematics set properly: real notation, display equations where they aid "
+                 "reading, and every symbol defined where it first appears.", True),
+    "continue": ("Continue writing from where the passage stops, about {continue_words} words. Match its voice, format, "
+                 "depth and notation, and move the argument forward rather than summarising it. Return ONLY the new "
+                 "continuation — do not repeat any of the existing text.", True),
+    "explain":  ("Explain the passage: what it says, why it matters here, and anything it gets wrong or leaves out. Point "
+                 "out any claim that needs a source. Be specific and brief.", False),
     "custom":   ("", True),
 }
+
+#: What an edit must leave alone, per notation. Rewrites used to come back
+#: with links flattened to their text, citations dropped and $x$ turned into
+#: "x" — the passage read better and the document broke.
+PRESERVE_RULES = {
+    "mdx": (
+        "Keep every link, image, footnote marker, inline code span, $maths$ and $$display maths$$ exactly as "
+        "written unless the task is to change them. Keep the passage's own Markdown structure."
+    ),
+    "latex": (
+        "Keep every command, \\cite, \\ref, \\eqref, \\label, footnote and maths environment intact unless the "
+        "task is to change them. Write LaTeX body syntax only."
+    ),
+}
+
+
+def _words(text: str) -> int:
+    return len([w for w in text.split() if any(c.isalnum() for c in w)])
 
 
 def transform_prompt(
@@ -355,24 +515,42 @@ def transform_prompt(
     before: str = "",
     after: str = "",
     title: str = "",
+    section: str = "",
+    outline: str = "",
+    previous: str = "",
+    labels: Optional[List[str]] = None,
 ) -> str:
     """Prompt for an inline edit of one passage, with its neighbours as context."""
     directive, replaces = TRANSFORM_ACTIONS.get(action, TRANSFORM_ACTIONS["custom"])
+    n = max(_words(selection), 1)
+    directive = directive.format(double=n * 2, half=max(n // 2, 8), continue_words=max(80, min(n, 220)))
     if action == "custom" or not directive:
         directive = instruction.strip() or "Improve this passage."
     elif instruction.strip():
         directive = f"{directive}\nAdditional instruction from the author: {instruction.strip()}"
 
     doc_line = f'The document is titled "{title}".\n' if title else ""
+    where = f"The passage is in the section: {section}.\n" if section.strip() else ""
+    shape = (
+        "The document's outline, for context — keep terms and scope consistent with it, and do not "
+        f"stray into what other sections cover:\n<outline>\n{outline[:1500]}\n</outline>\n"
+        if outline.strip() else ""
+    )
     surroundings = ""
     if before.strip():
-        surroundings += f"\nText immediately before the passage (do not rewrite it):\n<before>\n{before[-2000:]}\n</before>\n"
+        surroundings += f"\nText immediately before the passage (do not rewrite it):\n<before>\n{before[-2400:]}\n</before>\n"
     if after.strip():
-        surroundings += f"\nText immediately after the passage (do not rewrite it):\n<after>\n{after[:2000]}\n</after>\n"
+        surroundings += f"\nText immediately after the passage (do not rewrite it):\n<after>\n{after[:1600]}\n</after>\n"
+    again = (
+        "\nThe author has already seen this attempt and asked for another. Write a genuinely different "
+        "version — different phrasing and structure — that still does the task:\n"
+        f"<previous>\n{previous[:3000]}\n</previous>\n"
+        if previous.strip() else ""
+    )
 
     if replaces:
         tail = (
-            f"{format_rules(fmt)}\n"
+            f"{format_rules(fmt)}\n{PRESERVE_RULES.get(fmt, PRESERVE_RULES['mdx'])}\n"
             "Return ONLY the replacement text. No preamble, no explanation, no code fence "
             "around the whole answer, no restating of the surrounding context."
         )
@@ -384,12 +562,38 @@ def transform_prompt(
 
     return (
         f"You are a meticulous writing collaborator working inside a document editor.\n"
-        f"{doc_line}"
+        f"{doc_line}{where}{shape}"
+        f"{_labels_block(labels) if fmt == 'latex' else ''}"
         f"{surroundings}\n"
-        f"Passage to work on:\n<passage>\n{selection}\n</passage>\n\n"
+        f"Passage to work on:\n<passage>\n{selection}\n</passage>\n"
+        f"{again}\n"
         f"Task: {directive}\n\n"
         f"{tail}"
     )
+
+
+def trim_echo(before: str, text: str) -> str:
+    """Drop whatever a continuation repeats of the text it continues.
+
+    Asked to continue, models often restate the last sentence before going on,
+    so the document gets it twice. The longest tail of ``before`` (up to 400
+    characters) that the answer opens with is cut.
+    """
+    tail = before[-400:].strip()
+    out = text.lstrip()
+    for size in range(len(tail), 11, -1):
+        if out.startswith(tail[-size:]):
+            return out[size:].lstrip()
+    return text
+
+
+def strip_wrappers(text: str) -> str:
+    """Drop a <passage> wrapper the model echoed back around its answer."""
+    stripped = text.strip()
+    for tag in ("passage", "replacement", "answer"):
+        if stripped.startswith(f"<{tag}>") and stripped.endswith(f"</{tag}>"):
+            return stripped[len(tag) + 2: -(len(tag) + 3)].strip()
+    return stripped
 
 
 def strip_fences(text: str, fmt: Optional[str] = None) -> str:

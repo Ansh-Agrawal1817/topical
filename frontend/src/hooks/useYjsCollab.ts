@@ -75,6 +75,10 @@ export function useYjsCollab(
   const isRemoteUpdate = useRef(false);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cleanedUp = useRef(false);
+  const peersKey = useRef('[]');
+  // The newest receiver, read by the observer the session registered once.
+  const onRemote = useRef(onRemoteContentChange);
+  onRemote.current = onRemoteContentChange;
 
   // Initialize content into Yjs doc (only on first load when Y.Text is empty)
   const initContent = useCallback((text: string) => {
@@ -157,6 +161,11 @@ export function useYjsCollab(
         };
       });
 
+    // Awareness fires on every heartbeat; an unchanged list must not
+    // re-render the editor and re-dispatch every caret into it.
+    const key = JSON.stringify(peerList);
+    if (key === peersKey.current) return;
+    peersKey.current = key;
     setPeers(peerList);
   }, []);
 
@@ -179,15 +188,24 @@ export function useYjsCollab(
     const ytext = ydoc.getText('content');
     ytext.observe((_event, transaction) => {
       if (transaction.origin === 'ws') {
+        // Applied synchronously, and the flag held only for exactly as long.
+        // It used to stay up for 100ms on a timer, and every local keystroke in
+        // that window was kept out of Yjs — so while a co-author typed, your
+        // own characters were not sent, and their next change arrived without
+        // them and erased them from your screen. The receiver puts the text
+        // straight into the editor, so there is no window left to guard.
         isRemoteUpdate.current = true;
-        onRemoteContentChange(ytext.toString());
-        // Re-resolve all peer cursor positions against the new document state.
-        // This is what makes cursors "move" when text is inserted before them.
-        resolvePeerCursors();
-        setTimeout(() => { isRemoteUpdate.current = false; }, 100);
-      } else {
-        onRemoteContentChange(ytext.toString());
-        // Also re-resolve after local changes so peer cursors shift correctly
+        try {
+          onRemote.current(ytext.toString());
+          // Re-resolve all peer cursor positions against the new document state.
+          // This is what makes cursors "move" when text is inserted before them.
+          resolvePeerCursors();
+        } finally {
+          isRemoteUpdate.current = false;
+        }
+      } else if (awareness.getStates().size > 1) {
+        // A local edit: the screen already has this text. Only collaborators'
+        // carets need moving, and only if there are any.
         resolvePeerCursors();
       }
     });
@@ -301,9 +319,10 @@ export function useYjsCollab(
       ydoc.destroy();
       ydocRef.current = null;
       awarenessRef.current = null;
+      peersKey.current = '[]';
       setPeers([]);
     };
-  }, [docId, username]);
+  }, [docId, username, resolvePeerCursors]);
 
   return { peers, connected, initContent, applyLocalChange, updateCursor, isRemoteUpdate };
 }

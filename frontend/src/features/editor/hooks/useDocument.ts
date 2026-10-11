@@ -5,9 +5,21 @@ import { documentContent } from '@/lib/documents';
 import { formatOf, LATEX_PREFIX, type DocFormat, type LessonPlan } from '@/lib/types';
 import { useYjsCollab } from '@/hooks/useYjsCollab';
 
-const AUTOSAVE_INTERVAL_MS = 15_000;
+/**
+ * Autosave waits for a pause in the typing, and never longer than the cap.
+ *
+ * It used to be a fixed 15-second interval, so closing the tab (or pressing
+ * Back) up to fifteen seconds after the last keystroke dropped that work —
+ * and the status bar said "Unsaved changes" for most of every session. A
+ * pause is the natural moment to save; the cap keeps a writer who never
+ * pauses from going unsaved indefinitely.
+ */
+const AUTOSAVE_IDLE_MS = 1_200;
+const AUTOSAVE_MAX_WAIT_MS = 10_000;
+/** After a failed save, try again on this schedule rather than waiting for the next edit. */
+const RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000];
 
-export type SaveState = 'saved' | 'dirty' | 'saving';
+export type SaveState = 'saved' | 'dirty' | 'saving' | 'error';
 
 export interface DocumentModel {
   projectId?: number;
@@ -31,6 +43,8 @@ export interface DocumentModel {
   connected: boolean;
   updateCursor: (index: number, length: number) => void;
   isRemoteUpdate: React.MutableRefObject<boolean>;
+  /** Register the surface that collaborators' changes are applied to directly. */
+  bindSurface: (receive: ((text: string) => void) | null) => void;
 }
 
 /**
@@ -86,19 +100,44 @@ export function useDocument(
    */
   const [isPublic] = useState(!!plan.isPublic);
 
+  /**
+   * Where a collaborator's change lands first: the writing surface itself,
+   * synchronously, before React hears about it. Through React state alone
+   * there was a gap between Yjs having the change and the editor showing it,
+   * and a keystroke typed in that gap was diffed against the old text — which
+   * read the collaborator's insertion as something to delete.
+   */
+  const surface = useRef<((text: string) => void) | null>(null);
+  const bindSurface = useCallback((receive: ((text: string) => void) | null) => { surface.current = receive; }, []);
+
   const { peers, connected, initContent, applyLocalChange, updateCursor, isRemoteUpdate } =
     useYjsCollab(
       editing && projectId ? String(projectId) : undefined,
       currentUsername,
-      remote => setContentRaw(remote),
+      remote => {
+        surface.current?.(remote);
+        setContentRaw(remote);
+      },
     );
+
+  /**
+   * Bumped by every local change. A save remembers the revision it sent, and
+   * only marks the document clean if nothing has changed since — typing while
+   * a save was in flight used to be marked saved when it was not, and stayed
+   * unsaved until the writer happened to type again.
+   */
+  const revision = useRef(0);
+  const markDirty = useCallback(() => {
+    revision.current += 1;
+    setIsDirty(true);
+  }, []);
 
   const setContent = useCallback((value: string) => {
     setContentRaw(value);
-    setIsDirty(true);
+    markDirty();
     // Only push to Yjs for local edits, or a remote change echoes back.
     if (!isRemoteUpdate.current) applyLocalChange(value);
-  }, [applyLocalChange, isRemoteUpdate]);
+  }, [applyLocalChange, isRemoteUpdate, markDirty]);
 
   // ── Adopt ───────────────────────────────────────────────────────────────
   /*
@@ -136,32 +175,81 @@ export function useDocument(
     };
   }, [coAuthors, content, format, isPublic, name, projectId]);
 
+  /** The newest payload, for saves that fire from timers and teardown. */
+  const latestPlan = useRef(planFor);
+  latestPlan.current = planFor;
+
   const savingRef = useRef(false);
-  const save = useCallback(async (silent = false) => {
-    if (savingRef.current) return;
+  /** A save was asked for while one was in flight; it runs when that one lands. */
+  const queuedRef = useRef(false);
+  const [failed, setFailed] = useState(false);
+  const failures = useRef(0);
+
+  const save = useCallback(async (silent = false): Promise<void> => {
+    // One request at a time — but a save asked for mid-flight is owed, not
+    // dropped: ⌘S during an autosave used to do nothing at all.
+    if (savingRef.current) { queuedRef.current = true; return; }
     savingRef.current = true;
     setIsSaving(true);
+    const sent = revision.current;
     try {
-      const result = await saveLessonPlan(planFor());
+      const result = await saveLessonPlan(latestPlan.current());
       setProjectId(result.id);
-      setIsDirty(false);
+      if (revision.current === sent) setIsDirty(false);
       setLastSavedAt(Date.now());
-      if (!silent) toast.success('Saved');
+      setFailed(false);
+      failures.current = 0;
     } catch (error) {
+      setFailed(true);
+      failures.current += 1;
       if (!silent) toast.error(error instanceof Error ? error.message : 'Failed to save');
     } finally {
       savingRef.current = false;
       setIsSaving(false);
     }
-  }, [planFor]);
+    if (queuedRef.current) {
+      queuedRef.current = false;
+      await save(true);
+    }
+  }, []);
 
+  // ── Autosave ────────────────────────────────────────────────────────────
+  const dirtySince = useRef<number | null>(null);
+  useEffect(() => {
+    if (!isDirty) { dirtySince.current = null; return; }
+    dirtySince.current ??= Date.now();
+    if (!editing || !projectId) return;
+    // A failed save retries on its own schedule; an edit does not hurry it.
+    const delay = failed
+      ? RETRY_DELAYS_MS[Math.min(failures.current - 1, RETRY_DELAYS_MS.length - 1)]
+      : Math.max(0, Math.min(AUTOSAVE_IDLE_MS, AUTOSAVE_MAX_WAIT_MS - (Date.now() - dirtySince.current)));
+    const timer = window.setTimeout(() => { void save(true); }, delay);
+    return () => window.clearTimeout(timer);
+  }, [content, name, isDirty, editing, projectId, failed, save]);
+
+  /*
+   * Leaving with work unsaved. The browser asks before the tab closes, and
+   * leaving the screen in-app (Back, a link) sends whatever is pending on the
+   * way out instead of dropping it.
+   */
+  const unsaved = useRef(false);
+  unsaved.current = isDirty || isSaving;
   useEffect(() => {
     if (!editing) return;
-    const timer = setInterval(() => {
-      if (isDirty && !savingRef.current && projectId) save(true);
-    }, AUTOSAVE_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [editing, isDirty, projectId, save]);
+    const onUnload = (event: BeforeUnloadEvent) => {
+      if (!unsaved.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    const onHide = () => { if (document.visibilityState === 'hidden' && unsaved.current) void save(true); };
+    window.addEventListener('beforeunload', onUnload);
+    document.addEventListener('visibilitychange', onHide);
+    return () => {
+      window.removeEventListener('beforeunload', onUnload);
+      document.removeEventListener('visibilitychange', onHide);
+      if (unsaved.current && !savingRef.current) void save(true);
+    };
+  }, [editing, save]);
 
   // ── Co-authors ──────────────────────────────────────────────────────────
   const setCoAuthors = useCallback((ids: string[], usernames: (string | null)[]) => {
@@ -177,11 +265,11 @@ export function useDocument(
   return {
     projectId,
     name,
-    setName: (next: string) => { setName(next); setIsDirty(true); },
+    setName: (next: string) => { setName(next); markDirty(); },
     format,
     content,
     setContent,
-    saveState: isSaving ? 'saving' : isDirty ? 'dirty' : 'saved',
+    saveState: isSaving ? 'saving' : failed && isDirty ? 'error' : isDirty ? 'dirty' : 'saved',
     lastSavedAt,
     save,
     authorUsername,
@@ -193,5 +281,6 @@ export function useDocument(
     connected,
     updateCursor,
     isRemoteUpdate,
+    bindSurface,
   };
 }

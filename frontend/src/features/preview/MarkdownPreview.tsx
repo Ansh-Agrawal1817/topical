@@ -9,20 +9,9 @@ import { Check, Copy } from 'lucide-react';
 
 interface Props {
   content: string;
-  /**
-   * Tag every block with the source line it came from, so the editor can keep
-   * both panes in step and jump from the preview back into the text.
-   */
-  trackSource?: boolean;
 }
 
-/** hast nodes carry their source position; blocks use it for scroll sync. */
-type HastNode = { position?: { start?: { line?: number } }; children?: HastNode[]; value?: string };
-
-function lineAttrs(node: HastNode | undefined, track: boolean | undefined) {
-  const line = node?.position?.start?.line;
-  return track && line ? { 'data-line': line } : {};
-}
+type HastNode = { children?: HastNode[]; value?: string };
 
 /** Flatten a hast subtree to text — for heading slugs and copy buttons. */
 function textOf(node: HastNode | undefined): string {
@@ -71,18 +60,15 @@ function CopyButton({ text }: { text: string }) {
  * Memoised, and that is load-bearing rather than a micro-optimisation. Every
  * render re-parses the whole source through remark and rehype — GFM, math and
  * syntax highlighting — which on a 58,000-character document is tens of
- * milliseconds. The editor's split divider used to set React state on every
- * `mousemove`, so dragging it re-parsed the entire document sixty times a
- * second and the drag crawled. Both props are primitives, so the comparison
- * is exact and a drag now re-renders nothing here at all.
+ * milliseconds; a parent re-rendering for any other reason must not redo it.
  */
-function MarkdownPreviewInner({ content, trackSource }: Props) {
+function MarkdownPreviewInner({ content }: Props) {
   const heading = (level: number) =>
     function Heading({ node, children }: { node?: HastNode; children?: ReactNode }) {
       const Tag = `h${level}` as 'h1';
       const id = slugify(textOf(node));
       return (
-        <Tag id={id} className="md-h" {...lineAttrs(node, trackSource)}>
+        <Tag id={id} className="md-h">
           {children}
           {/* A quiet anchor: visible on hover, so long documents are linkable. */}
           {id && <a href={`#${id}`} className="md-anchor" aria-label="Link to this section">#</a>}
@@ -99,20 +85,15 @@ function MarkdownPreviewInner({ content, trackSource }: Props) {
           h1: heading(1), h2: heading(2), h3: heading(3),
           h4: heading(4), h5: heading(5), h6: heading(6),
 
-          p: ({ node, children }) => <p {...lineAttrs(node as HastNode, trackSource)}>{children}</p>,
-          ul: ({ node, children }) => <ul {...lineAttrs(node as HastNode, trackSource)}>{children}</ul>,
-          ol: ({ node, children }) => <ol {...lineAttrs(node as HastNode, trackSource)}>{children}</ol>,
-          hr: ({ node }) => <hr {...lineAttrs(node as HastNode, trackSource)} />,
-
           blockquote: ({ node, children }) => {
             // GitHub-style callouts: `> [!NOTE]` on the first line.
             const marker = /^\[!(\w+)\]/.exec(textOf(node as HastNode).trim());
             const callout = marker && CALLOUTS[marker[1].toUpperCase()];
             if (!callout) {
-              return <blockquote {...lineAttrs(node as HastNode, trackSource)}>{children}</blockquote>;
+              return <blockquote>{children}</blockquote>;
             }
             return (
-              <div className="md-callout" data-kind={callout.kind} {...lineAttrs(node as HastNode, trackSource)}>
+              <div className="md-callout" data-kind={callout.kind}>
                 <div className="md-callout-title">{callout.label}</div>
                 <div className="md-callout-body">{children}</div>
               </div>
@@ -125,7 +106,7 @@ function MarkdownPreviewInner({ content, trackSource }: Props) {
               String(((code as unknown as { properties?: { className?: string[] } })?.properties?.className ?? []).join(' ')),
             )?.[1];
             return (
-              <div className="md-code" {...lineAttrs(node as HastNode, trackSource)}>
+              <div className="md-code">
                 <div className="md-code-bar">
                   <span className="md-code-lang">{language ?? 'text'}</span>
                   <CopyButton text={textOf(code)} />
@@ -135,8 +116,8 @@ function MarkdownPreviewInner({ content, trackSource }: Props) {
             );
           },
 
-          table: ({ node, children }) => (
-            <div className="md-table-wrap" {...lineAttrs(node as HastNode, trackSource)}>
+          table: ({ children }) => (
+            <div className="md-table-wrap">
               <table>{children}</table>
             </div>
           ),

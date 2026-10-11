@@ -92,10 +92,10 @@ function PublicProfile() {
              which was reachable only by navigating away entirely. */
           <Row align="center" gap={2} as="span">
             <Button asChild variant="secondary" size="md">
-              <Link to="/profile/edit">Edit profile</Link>
+              <Link to="/settings" search={{ section: 'profile' }}>Edit profile</Link>
             </Button>
             <Button asChild variant="secondary" size="md">
-              <Link to="/profile"><Settings2 className="h-3.5 w-3.5" /> Settings</Link>
+              <Link to="/settings"><Settings2 className="h-3.5 w-3.5" /> Settings</Link>
             </Button>
           </Row>
         )}
@@ -106,7 +106,7 @@ function PublicProfile() {
         level="section"
         title="Published"
         subtitle={`Documents ${isSelf ? "you have" : `${name} has`} shared publicly.`}
-        className="mb-4"
+        className="mt-10 mb-4"
       />
 
       {published.length === 0 ? (
@@ -128,7 +128,7 @@ function PublicProfile() {
               <button key={doc.id} className="pub-row" onClick={() => openDoc(doc)}>
                 <DocTypeIcon type={format} icon={Icon} />
                 <span className="min-w-0 flex-1 text-left">
-                  <Text as="span" size="sm" weight="medium" tone="ink" truncate className="block">{doc.name}</Text>
+                  <span className="pub-row-title">{doc.name}</span>
                   <Text size="2xs" tone="ghost" as="span" className="block">
                     {isLatex ? "LaTeX" : "MDX"}
                     {doc.updatedAt && ` · ${formatDate(doc.updatedAt)}`}

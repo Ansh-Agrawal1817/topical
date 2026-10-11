@@ -1,77 +1,44 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Sparkles } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { useCompactEditor } from '@/hooks/useMediaQuery';
 import type { LessonPlanResponse } from '@/lib/api';
 import { documentShareUrl } from '@/lib/documentUrl';
+import { uploadFile } from '@/lib/api';
 import { useDocument } from './hooks/useDocument';
-import { useTextEditing } from './hooks/useTextEditing';
 import { useFindReplace } from './hooks/useFindReplace';
-import { useScrollSync } from './hooks/useScrollSync';
-import { useDragResize } from './hooks/useDragResize';
 import { EditorHeader } from './components/EditorHeader';
 import { Toolbar } from './components/Toolbar';
 import { ShortcutsSheet } from './components/ShortcutsSheet';
-import { CodeSurface } from './components/CodeSurface';
 import { PreviewPane } from './components/PreviewPane';
 import { OutlineRail } from './components/OutlineRail';
 import { StatusBar } from './components/StatusBar';
 import { FindBar } from './components/FindBar';
-import { SlashMenu } from './components/SlashMenu';
-import { AiAssist } from './components/AiAssist';
+import { SlashMenu, type SlashCommand } from './components/SlashMenu';
+import { PenLine, Sparkles } from 'lucide-react';
+import { AiPanel, type AiFocus, type AiRequest } from './ai/AiPanel';
+import { docStyleAttrs, pdfFromDocStyle, useDocStyle } from './lib/docStyle';
+import { useTheme } from '@/lib/theme';
+import { createAiQueue } from './ai/queue';
+import { useContextShelf } from './ai/shelf';
 import { CoAuthorsDialog } from './components/CoAuthorsDialog';
 import { ImageDialog } from './components/ImageDialog';
-import { PeerCursors } from './components/PeerCursors';
+import { LiveEditor, type LiveEditorHandle, type SurfaceMode } from './live/LiveEditor';
 import { activeNode, buildOutline, type OutlineNode } from './lib/outline';
-import { indexOutline, subtreeSpan } from './lib/tree';
+import { indexOutline, sectionWords, subtreeSpan } from './lib/tree';
+import { useSectionWriter } from './hooks/useSectionWriter';
+import { proseSample } from './lib/stats';
 import {
   addSectionAfter, applyOutline, dropSection, moveSectionTo, placeSection,
   renameSection, shiftSection,
 } from './lib/sections';
 import { countWords, documentStats } from './lib/stats';
-import { alignPrefixToSource } from './lib/sourceAlign';
-import { caretPosition, caretIndexFromPoint, insertBlock, lineAt, offsetOfLine, separatorFor, type EditResult } from './lib/textOps';
+import { afterBlock, caretPosition, insertBlock, lineAt, separatorFor, type EditResult, type Range } from './lib/textOps';
 import { LATEX_PREFIX, type DocFormat } from '@/lib/types';
 import type { EditorAction } from './lib/actions';
 import { copyText, downloadSource, printPreview, wrapLatexDocument } from './lib/exporters';
 import { ExportPdfDialog } from './components/ExportPdfDialog';
-import { DEFAULT_OPTIONS, loadOptions, saveOptions, type ViewMode, type ViewOptions } from './lib/viewOptions';
-import { Button, Kbd } from '@/components/ui';
-
-/**
- * The box a single character occupies inside one of the mirror's line
- * elements, `column` characters in.
- *
- * A collapsed DOM Range rather than arithmetic on the line's own box: the
- * surface soft-wraps, and the mirror paints each line as a run of syntax
- * spans, so neither the visual row nor the x position of a character can be
- * derived from the line without asking the browser where it actually put it.
- *
- * Returns null for a column past the end of the line's text — an empty line,
- * or a caret resting on the trailing newline — and the caller falls back to
- * the line's own box, which is the right answer in both cases.
- */
-function rectForOffset(lineEl: HTMLElement, column: number): DOMRect | null {
-  const walker = document.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT);
-  let seen = 0;
-  let node: Node | null;
-  while ((node = walker.nextNode()) !== null) {
-    const length = node.textContent?.length ?? 0;
-    if (seen + length >= column) {
-      const range = document.createRange();
-      range.setStart(node, Math.max(0, Math.min(column - seen, length)));
-      range.collapse(true);
-      const rect = range.getBoundingClientRect();
-      // A collapsed range in an empty text node measures zero on every axis;
-      // there is nothing to point at, so let the caller use the line.
-      if (rect.height > 0) return rect;
-      return null;
-    }
-    seen += length;
-  }
-  return null;
-}
+import { loadOptions, saveOptions, type ViewOptions } from './lib/viewOptions';
 
 export interface DocumentViewProps {
   /** The document, already loaded and access-checked by the route. */
@@ -87,11 +54,11 @@ export interface DocumentViewProps {
    * control that manages who else can edit.
    */
   isOwner: boolean;
-  /** Whether the writing surface is live, or this is the reading view. */
+  /** Whether the writing surface is live, or this is read mode. */
   editing: boolean;
-  /** Start writing. Absent for a viewer who may not. */
-  onEdit?: () => void;
-  /** Up one level: to reading from writing, or out to the projects list. */
+  /** Switch between read mode and writing, in place. Absent for a viewer who may only read. */
+  onMode?: (mode: 'read' | 'write') => void;
+  /** Out to the projects list. */
   onBack: () => void;
 }
 
@@ -99,62 +66,59 @@ export interface DocumentViewProps {
  * The document screen — reading and writing are two modes of it, not two
  * screens.
  *
- * There was briefly a separate reading page with a bar of its own, which was a
- * duplicate of a view this component already had: the editor's own Write /
- * Split / Read switch. Two implementations of "show me this document rendered"
- * is one too many, and they had already drifted — the reading page carried a
- * copy-link button the editor lacked, and the editor's preview had measure and
- * type-scaling rules the reading page did not.
- *
- * So the shell is one thing. Writing adds to it rather than replacing it:
- * reading is the same header, the same rendered sheet and the same export
- * menu, with the switch narrowed to its one reachable option and everything
- * that acts on text — the formatting toolbar, undo, save, find, the AI
- * surfaces, the outline rail — simply absent.
+ * Writing happens on one surface, in place: the live editor shows the
+ * document as it will read and reveals the markup only where the caret is,
+ * so there is no second pane to read a rendering in and no scrolling two
+ * views against each other. Reading — for anyone who may not write — is the
+ * fully typeset document, with LaTeX's numbering, references and
+ * bibliography resolved.
  *
  * Composition only: the document lives in `useDocument`, text operations in
- * `lib/textOps`, and each region of the screen in its own component.
+ * `lib/textOps`, the surface in `live/`, and each region of the screen in
+ * its own component.
  */
-export function DocumentView({ plan, isOwner, editing, onEdit, onBack }: DocumentViewProps) {
+export function DocumentView({ plan, isOwner, editing, onMode, onBack }: DocumentViewProps) {
   const { user } = useAuth();
   const doc = useDocument(user?.username || user?.given_name || 'Anonymous', plan, editing);
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<LiveEditorHandle>(null);
   const contentRef = useRef('');
-  const linesRef = useRef<HTMLPreElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
-  const previewRef = useRef<HTMLDivElement>(null);
-  const mainRef = useRef<HTMLDivElement>(null);
 
-  /**
-   * Below ~900px the editor shows one pane at a time.
-   *
-   * A layout decision rather than a stylistic one, which is why it is here and
-   * not a media query. Hiding the second pane in CSS leaves it mounted: the
-   * Markdown renderer, KaTeX, the highlighter and the collaborative cursor
-   * overlay all keep running for a pane nobody can see, on exactly the devices
-   * least able to afford them.
-   */
+  /** Below ~900px the outline rail becomes a drawer and the header narrows. */
   const compact = useCompactEditor();
-  const [viewMode, setViewMode] = useState<ViewMode>('split');
   const [showPdf, setShowPdf] = useState(false);
-  const [options, setOptions] = useState<ViewOptions>(DEFAULT_OPTIONS);
+  /** The rendered document, mounted off-screen only while it is being printed. */
+  const [printing, setPrinting] = useState(false);
+  // Read before the first paint, not in an effect after it: the effect
+  // version painted the defaults first, then reconfigured the editor and
+  // toggled the panels into place a frame later.
+  const [options, setOptions] = useState<ViewOptions>(loadOptions);
   /** The outline rail, open over the document rather than beside it. */
   const [railOpen, setRailOpen] = useState(false);
-  const [splitRatio, setSplitRatio] = useState(50);
-  const [caret, setCaret] = useState(0);
-  const [selection, setSelection] = useState({ start: 0, end: 0 });
+  const [selection, setSelection] = useState<Range>({ start: 0, end: 0 });
+  const caret = selection.end;
   const [slash, setSlash] = useState<{ start: number; query: string } | null>(null);
-  const [assistOpen, setAssistOpen] = useState(false);
+  const slashOpen = useRef(false);
+  slashOpen.current = slash !== null;
   /**
-   * Opened *with* a selection, so losing the selection closes it.
-   *
-   * Clicking into the text to deselect left the panel sitting over the page
-   * with a header reading "0 words selected" and every action pointed at
-   * nothing. "Continue writing" is the one action that legitimately works from
-   * a bare caret, so a panel opened at the caret is left alone.
+   * The AI that acts on this document: one queue every request runs through
+   * (sections and edits alike, one at a time, retrying on rate limits), and
+   * the context shelf they are grounded in.
    */
-  const assistNeedsSelection = useRef(false);
+  const queue = useMemo(() => createAiQueue(), []);
+  useEffect(() => () => queue.dispose(), [queue]);
+  const shelf = useContextShelf(String(plan.id || 'local'));
+  /** This document's page, accent and font — re-scoped tokens on the surface. */
+  const [docStyle, setDocStyle] = useDocStyle(String(plan.id || 'local'));
+  const appTheme = useTheme();
+  const styleAttrs = docStyleAttrs(docStyle, appTheme === 'dark');
+  const shelfUrlsRef = useRef<string[]>([]);
+  shelfUrlsRef.current = shelf.urls;
+  /** The AI panel as a drawer, in the compact layout (wide, it is `options.ai`). */
+  const [aiDrawer, setAiDrawer] = useState(false);
+  const [aiFocus, setAiFocus] = useState(0);
+  const [aiRequest, setAiRequest] = useState<AiRequest | undefined>(undefined);
   const [showShare, setShowShare] = useState(false);
   const [showImage, setShowImage] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -166,32 +130,28 @@ export function DocumentView({ plan, isOwner, editing, onEdit, onBack }: Documen
     window.addEventListener('topical:shortcuts', open);
     return () => window.removeEventListener('topical:shortcuts', open);
   }, [editing]);
+
   /**
    * The heading of the section the outline rail is acting on.
    *
    * Reshaping a row used to change the document with nothing on screen
    * connecting the row to the text it stands for — the writer indented a
    * heading in the rail and had to go looking for what had moved. Holding the
-   * offset here lets both panes mark the section instead.
+   * offset here lets the surface mark the section instead.
    */
   const [focusOffset, setFocusOffset] = useState<number | null>(null);
 
   useEffect(() => { contentRef.current = doc.content; }, [doc.content]);
 
-  useEffect(() => { setOptions(loadOptions()); }, []);
-
-  /*
-   * Split is not offered when there is no room for it.
-   *
-   * The stored preference is left alone: a writer who works in split on a
-   * desktop and narrows the window should find split again when they widen it,
-   * so this coerces what is *shown* rather than rewriting what was chosen.
-   */
-  const effectiveMode: ViewMode = !editing
-    ? 'preview'
-    : compact && viewMode === 'split'
-      ? 'code'
-      : viewMode;
+  // Collaborators' edits go straight onto the surface (see useDocument).
+  const { bindSurface } = doc;
+  useEffect(() => {
+    bindSurface(text => {
+      contentRef.current = text;
+      editorRef.current?.receive(text);
+    });
+    return () => bindSurface(null);
+  }, [bindSurface]);
 
   // A drawer that stays open across a route change would cover the next
   // document; closing it when the layout stops being compact is the same idea.
@@ -221,30 +181,50 @@ export function DocumentView({ plan, isOwner, editing, onEdit, onBack }: Documen
     });
   }, []);
 
-  const edits = useTextEditing({
-    textareaRef,
-    content: doc.content,
-    setContent: doc.setContent,
-    format: doc.format,
-  });
+  // ── Editing ────────────────────────────────────────────────────────────
+  /** Apply an edit computed against the newest text, and put the selection where it says. */
+  const apply = useCallback((result: EditResult) => {
+    contentRef.current = result.content;
+    editorRef.current?.apply(result);
+  }, []);
+
+  const currentSelection = useCallback((): Range => editorRef.current?.selection() ?? selection, [selection]);
+
+  const runAction = useCallback((action: EditorAction) => {
+    apply(action.apply(contentRef.current, currentSelection()));
+  }, [apply, currentSelection]);
 
   // ── Selection tracking ──────────────────────────────────────────────────
-  const syncSelection = useCallback(() => {
-    // The textarea's caret is unreliable mid-remote-update, and reporting it
+  const onSelection = useCallback((next: Range) => {
+    setSelection(prev => (prev.start === next.start && prev.end === next.end ? prev : next));
+    // The slash menu belongs to the "/word" being typed: a click or an arrow
+    // key that takes the caret out of it closes the menu, which otherwise sat
+    // open over the page catching every Enter and arrow key.
+    setSlash(open => (open && (next.start !== next.end || next.end <= open.start || next.end > open.start + 1 + open.query.length)
+      ? null : open));
+    // The editor's caret is unreliable mid-remote-update, and reporting it
     // then would jump every collaborator's cursor to the wrong place.
-    if (doc.isRemoteUpdate.current) return;
-    const ta = textareaRef.current;
-    if (!ta) return;
-    setCaret(ta.selectionStart);
-    setSelection({ start: ta.selectionStart, end: ta.selectionEnd });
-    doc.updateCursor(ta.selectionStart, ta.selectionEnd - ta.selectionStart);
+    if (!doc.isRemoteUpdate.current) doc.updateCursor(next.start, next.end - next.start);
   }, [doc]);
 
   // ── Derived views of the document ───────────────────────────────────────
-  const outline = useMemo(() => buildOutline(doc.content, doc.format), [doc.content, doc.format]);
-  const stats = useMemo(() => documentStats(doc.content, doc.format), [doc.content, doc.format]);
+  /*
+   * The text as the rest of the screen sees it — one step behind the surface.
+   *
+   * The outline, the word counts and the status bar are all whole-document
+   * scans, and on a long draft they cost more per keystroke than the editor
+   * itself: measured on a 13,000-word document, every key spent ~20ms
+   * counting words before the next frame could paint. Deferring them lets
+   * React paint the keystroke first and fold these in when it has the time;
+   * a burst of typing collapses into one recount at the end of it.
+   */
+  const settled = useDeferredValue(doc.content);
+  const outline = useMemo(() => buildOutline(settled, doc.format), [settled, doc.format]);
+  const stats = useMemo(() => documentStats(settled, doc.format), [settled, doc.format]);
   const position = useMemo(() => caretPosition(doc.content, caret), [doc.content, caret]);
   const tree = useMemo(() => indexOutline(outline), [outline]);
+  /** Words behind every heading — its own prose, and its whole subtree. One pass, shared by the rail and the writer. */
+  const words = useMemo(() => sectionWords(tree, settled, doc.format), [tree, settled, doc.format]);
   /**
    * The heading the caret is inside, as an id.
    *
@@ -258,17 +238,17 @@ export function DocumentView({ plan, isOwner, editing, onEdit, onBack }: Documen
   const focusSpan = useMemo(() => {
     if (focusOffset === null) return null;
     const index = tree.byOffset.get(focusOffset);
-    return index === undefined ? null : subtreeSpan(tree, index, doc.content.length);
-  }, [doc.content.length, focusOffset, tree]);
+    return index === undefined ? null : subtreeSpan(tree, index, settled.length);
+  }, [settled.length, focusOffset, tree]);
 
-  /** The same span as source lines, which is what both panes can actually mark. */
+  /** The same span as source lines, which is what the surface marks. */
   const focusLines = useMemo(() => {
     if (!focusSpan) return null;
     return {
-      from: lineAt(doc.content, focusSpan.start).number,
-      to: lineAt(doc.content, Math.max(focusSpan.start, focusSpan.end - 1)).number,
+      from: lineAt(settled, focusSpan.start).number,
+      to: lineAt(settled, Math.max(focusSpan.start, focusSpan.end - 1)).number,
     };
-  }, [doc.content, focusSpan]);
+  }, [settled, focusSpan]);
 
   /*
    * The mark follows the caret out of the section, and no further.
@@ -284,109 +264,15 @@ export function DocumentView({ plan, isOwner, editing, onEdit, onBack }: Documen
     if (!focusSpan || caret < focusSpan.start || caret > focusSpan.end) setFocusOffset(null);
   }, [caret, focusOffset, focusSpan]);
 
-  /*
-   * The rendered half marks the same span. `data-line` is 1-based and only
-   * present on tracked Markdown blocks, so this quietly does nothing for LaTeX
-   * rather than needing a second implementation.
-   */
-  useEffect(() => {
-    const root = previewRef.current;
-    if (!root) return;
-    const blocks = root.querySelectorAll<HTMLElement>('[data-line]');
-    blocks.forEach(block => block.classList.remove('doc-focus'));
-    if (!focusLines) return;
-    blocks.forEach(block => {
-      const line = Number(block.dataset.line) - 1;
-      if (line >= focusLines.from && line <= focusLines.to) block.classList.add('doc-focus');
-    });
-  }, [doc.content, focusLines, effectiveMode]);
   const selectedWords = useMemo(
     () => (selection.end > selection.start ? countWords(doc.content.slice(selection.start, selection.end), doc.format) : 0),
     [doc.content, doc.format, selection],
   );
 
-  // ── Putting the caret somewhere, visibly ────────────────────────────────
-  /** Clears the flash below when the next one starts, or on unmount. */
-  const flashTimer = useRef<number | null>(null);
-  useEffect(() => () => { if (flashTimer.current) window.clearTimeout(flashTimer.current); }, []);
-
-  /**
-   * Move the caret to `offset` and make sure the writer can see it happen.
-   *
-   * Three things had to change here, and the order of the first two is the
-   * whole bug: this used to set `scrollTop`, then `focus()`, then
-   * `setSelectionRange` — and both of the last two scroll a textarea to its
-   * selection on their own, so the carefully computed scroll position was
-   * overwritten a line later by the browser's own idea of where to go. The
-   * caret went to the right place and the view did not follow it, which is
-   * exactly "I have to scroll around to find the pointer".
-   *
-   * It also measured `lineEl.offsetTop`, the top of the *logical* line. The
-   * surface soft-wraps, so a caret two visual rows into a long paragraph is
-   * nowhere near it. A collapsed Range over the mirror gives the real
-   * position of that character, wrapping included — the mirror is glyph-for
-   * -glyph identical to the textarea, which is the entire reason it exists.
-   */
-  const revealOffset = useCallback((offset: number) => {
-    const ta = textareaRef.current;
-    const pre = linesRef.current;
-    if (!ta) return;
-
-    // Selection first, then focus — after which the browser may have scrolled
-    // the surface, so every measurement below has to happen afterwards.
-    ta.setSelectionRange(offset, offset);
-    ta.focus({ preventScroll: true });
-    setCaret(offset);
-
-    const line = lineAt(doc.content, offset);
-    const lineEl = pre?.children[line.number] as HTMLElement | undefined;
-    if (!pre || !lineEl) return;
-
-    // The caret's y within the scrollable content — measured against the
-    // mirror's own scroll position, so it does not matter whether the mirror
-    // and the textarea have finished syncing.
-    const paneTop = pre.getBoundingClientRect().top;
-    const caretRect = rectForOffset(lineEl, offset - line.start) ?? lineEl.getBoundingClientRect();
-    const caretY = caretRect.top - paneTop + pre.scrollTop;
-
-    // Only move the view when the caret is not already comfortably inside it.
-    // Scrolling on every click, including the ones that land on screen, reads
-    // as the pane twitching for no reason.
-    const margin = Math.min(80, ta.clientHeight / 4);
-    const viewTop = ta.scrollTop;
-    const viewBottom = viewTop + ta.clientHeight;
-    if (caretY < viewTop + margin || caretY > viewBottom - margin) {
-      ta.scrollTop = Math.max(0, caretY - ta.clientHeight * 0.4);
-      pre.scrollTop = ta.scrollTop;
-    }
-
-    /*
-     * A caret is one hairline in a wall of monospace, and it is not always
-     * blinking — a writer whose focus was in the preview pane has no idea
-     * which of these lines just became the current one. The line flashes once
-     * so the eye is told where to look, then gets out of the way.
-     */
-    lineEl.classList.remove('cl-flash');
-    // Reading back a layout property restarts the animation on a line that is
-    // already flashing; without it, clicking twice in the same paragraph
-    // flashes only the first time.
-    void lineEl.offsetWidth;
-    lineEl.classList.add('cl-flash');
-    if (flashTimer.current) window.clearTimeout(flashTimer.current);
-    flashTimer.current = window.setTimeout(() => lineEl.classList.remove('cl-flash'), 1200);
-  }, [doc.content]);
-
-  /**
-   * Put the caret on the source character behind a click in the preview.
-   *
-   * `line` narrows it to a block; the rendered prefix is walked against the
-   * source from there to find the character — see `lib/sourceAlign` for why
-   * that is a text alignment rather than a lookup.
-   */
-  const jumpToSource = useCallback((line: number, prefix: string) => {
-    const blockStart = offsetOfLine(doc.content, line);
-    revealOffset(blockStart + alignPrefixToSource(doc.content.slice(blockStart), prefix));
-  }, [doc.content, revealOffset]);
+  /** Move the caret to `offset`, bring it into the middle of the view, and flash its line. */
+  const revealOffset = useCallback((offset: number, end = offset) => {
+    editorRef.current?.select(offset, end, { reveal: true, flash: true });
+  }, []);
 
   /**
    * Go to a section and mark it, so the row that was clicked and the text it
@@ -399,40 +285,24 @@ export function DocumentView({ plan, isOwner, editing, onEdit, onBack }: Documen
   const goToSection = useCallback((node: OutlineNode) => {
     setFocusOffset(node.offset);
     revealOffset(node.offset);
-  }, [revealOffset]);
+    // As a drawer, the panel the jump came from covers the place it went to.
+    if (compact) { setRailOpen(false); setAiDrawer(false); }
+  }, [compact, revealOffset]);
 
   const find = useFindReplace({
     content: doc.content,
-    onReplace: (next, at) => edits.apply({ content: next, start: at, end: at }),
-    onFocusMatch: match => {
-      const ta = textareaRef.current;
-      revealOffset(match.start);
-      ta?.setSelectionRange(match.start, match.end);
+    caret: () => editorRef.current?.selection().start ?? 0,
+    // Both keep focus in the find bar: the writer is driving from there.
+    onReplace: (next, at) => {
+      contentRef.current = next;
+      editorRef.current?.apply({ content: next, ...at }, { focus: false });
     },
+    onFocusMatch: match => editorRef.current?.select(match.start, match.end, { reveal: true, focus: false }),
   });
+  /** Closing the bar hands the writer back to the text, on the match they found. */
+  const findDone = useCallback(() => editorRef.current?.focus(), []);
 
-  useScrollSync({
-    textareaRef,
-    linesRef,
-    previewRef,
-    enabled: options.syncScroll && effectiveMode === 'split',
-    revision: doc.content,
-  });
-
-  // ── Placement helpers ───────────────────────────────────────────────────
-  /**
-   * Apply an edit that was computed against the newest text.
-   *
-   * "Generate all sections" inserts many sections without this component
-   * re-rendering between them, so a value captured from `doc.content` goes
-   * stale after the first one. Every section-level edit reads and writes
-   * through the ref instead.
-   */
-  const applyToDocument = useCallback((result: EditResult) => {
-    contentRef.current = result.content;
-    edits.apply(result);
-  }, [edits]);
-
+  // ── Section-level edits ─────────────────────────────────────────────────
   /**
    * Run one of `lib/sections`' operations against the newest text.
    *
@@ -450,20 +320,47 @@ export function DocumentView({ plan, isOwner, editing, onEdit, onBack }: Documen
       ...args: Args
     ): Result => {
       const result = operation(contentRef.current, doc.format, ...args);
-      if (result) applyToDocument(result);
+      // Focus stays where the writer is working. These run from the rail's
+      // keys and buttons and from AI jobs landing in the background; taking
+      // focus into the text pulled the writer out of the rail mid-gesture —
+      // the next ⌥↓ then moved a line of prose instead of a section — and out
+      // of the AI panel's field mid-sentence.
+      if (result) {
+        contentRef.current = result.content;
+        editorRef.current?.apply(result, { focus: false });
+      }
       return result;
     },
-    [applyToDocument, doc.format],
+    [doc.format],
   );
 
   /** File a generated section under its own heading, or append it. */
-  const insertSection = useCallback((text: string, title: string, replace = false) => {
-    editSections(placeSection, title, text, replace);
+  const insertSection = useCallback((text: string, title: string, replace = false, near?: number) => {
+    editSections(placeSection, title, text, replace, near);
   }, [editSections]);
 
-  /** Remove a section and everything nested under it. */
-  const deleteSection = useCallback((title: string) => {
-    editSections(dropSection, title);
+  /**
+   * Section writing, shared by the outline rail (each row's ✨) and the AI
+   * panel's Write tab (the batch, and every section on its own). One writer,
+   * so both show the same jobs and the same per-row state.
+   */
+  const wordsOf = useCallback((node: OutlineNode) => words.own.get(node.offset) ?? 0, [words]);
+  const writer = useSectionWriter({
+    format: doc.format,
+    projectName: doc.name,
+    tree,
+    wordsOf,
+    onInsertSection: insertSection,
+    onFocusSection: node => setFocusOffset(node.offset),
+    styleSample: () => proseSample(contentRef.current, doc.format),
+    readContent: () => contentRef.current,
+    readUrls: () => shelfUrlsRef.current,
+    queue,
+  });
+
+  /** Remove a section and everything nested under it. By offset: two sections may share a title. */
+  const deleteSection = useCallback((offset: number) => {
+    editSections(dropSection, offset);
   }, [editSections]);
 
   /*
@@ -499,9 +396,9 @@ export function DocumentView({ plan, isOwner, editing, onEdit, onBack }: Documen
    * rather than deleted — the writer is told how many, and can remove them
    * deliberately.
    */
-  const applyProposedOutline = useCallback((plan: { title: string; level: number }[]) => {
-    const { result, orphans } = applyOutline(contentRef.current, doc.format, plan);
-    applyToDocument(result);
+  const applyProposedOutline = useCallback((proposal: { title: string; level: number }[]) => {
+    const { result, orphans } = applyOutline(contentRef.current, doc.format, proposal);
+    apply(result);
     if (orphans.length) {
       toast.info(
         `Structure updated — ${orphans.length} section${orphans.length === 1 ? '' : 's'} not in the outline moved to the end`,
@@ -510,94 +407,187 @@ export function DocumentView({ plan, isOwner, editing, onEdit, onBack }: Documen
     } else {
       toast.success('Structure updated');
     }
-  }, [applyToDocument, doc.format]);
+  }, [apply, doc.format]);
 
-  /** The split between editor and preview, as a percentage of the shared row. */
-  const startSplitDrag = useDragResize({
-    from: () => splitRatio,
-    to: (dx, start) => {
-      // Measured against the row rather than the window, so the divider keeps
-      // up with the pointer at any window size.
-      const row = mainRef.current?.getBoundingClientRect().width ?? 1;
-      return Math.min(Math.max(22, start + (dx / Math.max(row, 1)) * 100), 78);
-    },
-    onChange: setSplitRatio,
-  });
-
-  const replaceSelection = useCallback((text: string) => {
-    const { start, end } = selection;
-    edits.apply({
-      content: doc.content.slice(0, start) + text + doc.content.slice(end),
-      start,
-      end: start + text.length,
-    });
-  }, [doc.content, edits, selection]);
-
-  // A panel opened on a selection follows that selection out of existence.
-  useEffect(() => {
-    if (!assistOpen || !assistNeedsSelection.current) return;
-    if (selection.end <= selection.start) setAssistOpen(false);
-  }, [assistOpen, selection.start, selection.end]);
-
-  // ── Popover anchoring, measured from the mirror's per-line elements ─────
   /**
-   * The anchor line's box, in the surface's own coordinates.
+   * Put a refined passage back where it came from.
    *
-   * This used to return a finished `{x, y}` with the vertical clamped to
-   * `box.height - 80` — a number that assumed the panel was 80px tall when it
-   * is nearer 300. Anchoring near the foot of the surface therefore pinned the
-   * panel 80px from the bottom, over the very text it was about, with most of
-   * it cut off. It also only ever placed *below* the line, so there was no
-   * case where it could move out of the way.
+   * The edit was reviewed in the AI tab while the document stayed editable,
+   * so the passage may have moved: it is found again by its text near where
+   * it was, and an edit whose passage is gone is inserted rather than
+   * overwriting whatever now sits at the old offsets.
+   */
+  const replacePassage = useCallback((range: { start: number; end: number }, passage: string, text: string) => {
+    const now = contentRef.current;
+    let start = now.slice(range.start, range.end) === passage ? range.start : -1;
+    if (start < 0) {
+      const hits: number[] = [];
+      for (let i = now.indexOf(passage); i >= 0; i = now.indexOf(passage, i + 1)) hits.push(i);
+      start = hits.sort((a, b) => Math.abs(a - range.start) - Math.abs(b - range.start))[0] ?? -1;
+    }
+    if (start < 0) {
+      toast.info('That passage has changed since — the edit was added below instead.');
+      apply(insertBlock(now, text, afterBlock(now, range.end), separatorFor(doc.format)));
+      return;
+    }
+    apply({ content: now.slice(0, start) + text + now.slice(start + passage.length), start, end: start + text.length });
+  }, [apply, doc.format]);
+
+  /*
+   * The rail's own handlers, held stable so the rail — memoised — re-renders
+   * when the outline or the counts change and not on every keystroke's
+   * render of this screen.
+   */
+  const setOutlineWidth = useCallback((next: number) => updateOptions({ outlineWidth: next }), [updateOptions]);
+  const closeRail = useCallback(
+    () => (compact ? setRailOpen(false) : updateOptions({ outline: false })),
+    [compact, updateOptions],
+  );
+  const focusSection = useCallback((node: OutlineNode | null) => setFocusOffset(node ? node.offset : null), []);
+
+  /** Open or close the AI panel: a column when wide (remembered), a drawer when compact. */
+  const setAiOpen = useCallback((open: boolean) => {
+    // A request is for the panel it was made to: one left over would replay
+    // on the next open — back to its tab, or its section re-sent to Write.
+    if (!open) setAiRequest(undefined);
+    if (compact) { setAiDrawer(open); if (open) setRailOpen(false); return; }
+    setOptions(prev => {
+      if (prev.ai === open) return prev;
+      const next = { ...prev, ai: open };
+      saveOptions(next);
+      return next;
+    });
+  }, [compact]);
+  const aiOpen = compact ? aiDrawer : options.ai;
+
+  /** Open the AI panel on a tab — Refine's field for ⌘J — on the queue, or on Write with one section. */
+  const openAi = useCallback((focus: AiFocus = 'refine', section?: OutlineNode) => {
+    setAiOpen(true);
+    setAiRequest({ focus, at: Date.now(), section });
+    if (focus === 'refine') setAiFocus(n => n + 1);
+  }, [setAiOpen]);
+
+  // ── Popover anchoring ───────────────────────────────────────────────────
+  /**
+   * The line at `offset`, in the surface's own coordinates.
    *
-   * The caller gets the line instead and decides, because only the caller
-   * knows how tall it is.
+   * The caller decides above or below, because only the caller knows how tall
+   * it is.
    */
   const anchorForOffset = useCallback((offset: number) => {
-    const pre = linesRef.current;
     const surface = surfaceRef.current;
-    if (!pre || !surface) return null;
-    const lineEl = pre.children[lineAt(doc.content, offset).number] as HTMLElement | undefined;
-    if (!lineEl) return null;
-    const line = lineEl.getBoundingClientRect();
+    const at = editorRef.current?.coordsAt(offset);
+    if (!surface || !at) return null;
     const box = surface.getBoundingClientRect();
     return {
-      x: line.left - box.left,
-      lineTop: line.top - box.top,
-      lineBottom: line.bottom - box.top,
+      x: at.left - box.left,
+      lineTop: at.top - box.top,
+      lineBottom: at.bottom - box.top,
       boxWidth: box.width,
       boxHeight: box.height,
     };
-  }, [doc.content]);
+  }, []);
 
   // ── Editing surface events ──────────────────────────────────────────────
   const handleChange = useCallback((value: string) => {
+    contentRef.current = value;
     doc.setContent(value);
-    const ta = textareaRef.current;
-    if (!ta) return;
     // `/` at the start of a word opens the insert menu, and keeps filtering
     // until whitespace ends the token.
-    const before = value.slice(0, ta.selectionStart);
-    const trigger = /(?:^|\s)\/([\w-]*)$/.exec(before);
-    setSlash(trigger ? { start: ta.selectionStart - trigger[1].length - 1, query: trigger[1] } : null);
+    const at = editorRef.current?.selection().end ?? value.length;
+    const trigger = /(?:^|\s)\/([\w-]*)$/.exec(value.slice(Math.max(0, at - 40), at));
+    setSlash(trigger ? { start: at - trigger[1].length - 1, query: trigger[1] } : null);
   }, [doc]);
 
   const runSlashAction = useCallback((action: EditorAction) => {
-    const ta = textareaRef.current;
-    if (!ta || !slash) return;
+    if (!slash) return;
+    const at = editorRef.current?.selection().end ?? slash.start;
     // Drop the "/query" the user typed, then apply the action there.
-    const stripped = doc.content.slice(0, slash.start) + doc.content.slice(ta.selectionStart);
+    const stripped = contentRef.current.slice(0, slash.start) + contentRef.current.slice(at);
     setSlash(null);
-    edits.apply(action.apply(stripped, { start: slash.start, end: slash.start }));
-  }, [doc.content, edits, slash]);
+    apply(action.apply(stripped, { start: slash.start, end: slash.start }));
+  }, [apply, slash]);
 
-  const handleDropText = useCallback((text: string, clientX: number, clientY: number) => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    const at = caretIndexFromPoint(ta, clientX, clientY);
-    edits.apply(insertBlock(doc.content, text, at, separatorFor(doc.format)));
+  const closeSlash = useCallback(() => setSlash(null), []);
+
+  /*
+   * The AI, from the `/` menu — where the writer already is when they want
+   * help, rather than across the screen in a panel. "Write this section" is
+   * offered only for a section with nothing in it yet: it fills a heading,
+   * and on one with prose it would replace the writer's words.
+   */
+  const caretSection = useMemo(() => tree.nodes.find(node => node.id === activeId) ?? null, [activeId, tree]);
+  const slashCommands = useMemo<SlashCommand[]>(() => {
+    const out: SlashCommand[] = [
+      { id: 'ask-ai', label: 'Ask AI…', group: 'AI', icon: Sparkles, terms: 'ai assistant write help instruction', hint: '⌘J' },
+    ];
+    // At most one word: the "/query" being typed is itself counted as one.
+    if (caretSection && wordsOf(caretSection) <= 1) {
+      out.push({ id: 'write-section', label: `Write “${caretSection.label}” with AI`, group: 'AI', icon: PenLine, terms: 'ai generate draft section' });
+    }
+    return out;
+  }, [caretSection, wordsOf]);
+
+  const runSlashCommand = useCallback((command: SlashCommand) => {
+    if (!slash) return;
+    const at = editorRef.current?.selection().end ?? slash.start;
+    // The "/ask" the writer typed goes, as it does for an insert.
+    apply({
+      content: contentRef.current.slice(0, slash.start) + contentRef.current.slice(at),
+      start: slash.start,
+      end: slash.start,
+    });
+    setSlash(null);
+    if (command.id === 'ask-ai') openAi('refine');
+    if (command.id === 'write-section' && caretSection) writer.writeSection(caretSection);
+  }, [apply, caretSection, openAi, slash, writer]);
+
+  /** How an image sits in this format's markup. */
+  const imageMarkup = useCallback((url: string, alt = '') => (doc.format === 'latex'
+    ? `\\begin{figure}[h]\n  \\centering\n  \\includegraphics[width=0.8\\textwidth]{${url}}\n\\end{figure}`
+    : `![${alt}](${url})`), [doc.format]);
+
+  /**
+   * Pasted or dropped pictures: a placeholder goes in at once, where the
+   * picture will be, and becomes the image when the upload lands — so the
+   * writer sees the paste take, and can keep typing while it uploads.
+   */
+  const handleImages = useCallback((files: File[], at: number) => {
+    const latex = doc.format === 'latex';
+    let pos = at;
+    for (const file of files.slice(0, 6)) {
+      const id = Math.random().toString(36).slice(2, 8);
+      const name = (file.name || 'image').replace(/[[\]()%{}\n]/g, '');
+      const placeholder = latex ? `% Uploading ${name}… (${id})` : `![Uploading ${name}…](uploading-${id})`;
+      const placed = insertBlock(contentRef.current, placeholder, afterBlock(contentRef.current, pos), separatorFor(doc.format));
+      apply(placed);
+      pos = placed.end;
+      const swap = (text: string) => {
+        const now = contentRef.current;
+        const where = now.indexOf(placeholder);
+        if (where < 0) return;
+        const next = now.slice(0, where) + text + now.slice(where + placeholder.length);
+        // The writer kept typing while it uploaded: their caret stays on the
+        // same character, shifted by however much the swap changed above it.
+        const delta = text.length - placeholder.length;
+        const sel = currentSelection();
+        const keep = (n: number) => (n > where ? Math.max(where, n + delta) : n);
+        contentRef.current = next;
+        editorRef.current?.apply({ content: next, start: keep(sel.start), end: keep(sel.end) }, { focus: false, scroll: false });
+      };
+      uploadFile(file)
+        .then(url => swap(imageMarkup(url, name.replace(/\.[a-z0-9]+$/i, ''))))
+        .catch(error => {
+          swap('');
+          toast.error(error instanceof Error ? error.message : 'Upload failed');
+        });
+    }
+  }, [apply, currentSelection, doc.format, imageMarkup]);
+
+  const handleDropText = useCallback((text: string, at: number) => {
+    apply(insertBlock(contentRef.current, text, afterBlock(contentRef.current, at), separatorFor(doc.format)));
     toast.success('Dropped into the document');
-  }, [doc.content, doc.format, edits]);
+  }, [apply, doc.format]);
 
   // ── Global shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
@@ -605,36 +595,63 @@ export function DocumentView({ plan, isOwner, editing, onEdit, onBack }: Documen
     // reading, and ⌘S in particular should stay the browser's own.
     if (!editing) return;
     const onKey = (event: KeyboardEvent) => {
+      // Escape from the text closes find, as it does from the bar — unless the
+      // slash menu is open, which is nearer and takes it first.
+      if (event.key === 'Escape' && find.open && !slashOpen.current
+        && (document.activeElement as HTMLElement | null)?.closest('.cm-editor')) {
+        find.setOpen(false);
+        return;
+      }
       const mod = event.metaKey || event.ctrlKey;
       if (!mod) return;
       const key = event.key.toLowerCase();
 
       if (key === 's') { event.preventDefault(); doc.save(); }
       if (key === '\\') { event.preventDefault(); toggleOutline(); }
-      if (key === 'f') { event.preventDefault(); find.setOpen(true); }
+      if (key === 'f') {
+        event.preventDefault();
+        const sel = currentSelection();
+        find.openWith(contentRef.current.slice(sel.start, sel.end));
+      }
+      // ⌘G / ⇧⌘G: the next and previous match, from anywhere, while finding.
+      if (key === 'g' && find.open) { event.preventDefault(); find.step(event.shiftKey ? -1 : 1); }
       // ⌘/ is the near-universal binding for "what are the shortcuts", and
       // toggling means the same key puts the sheet away again.
       if (key === '/') { event.preventDefault(); setShowShortcuts(open => !open); }
-      // ⌘J both opens and dismisses — the same key that summoned it should
-      // put it away, without reaching for Escape or the close button.
+      // ⌘J opens the AI panel on Refine, with the selection already shown
+      // there; pressed again from inside the panel, it closes it and returns
+      // to the text.
       if (key === 'j') {
         event.preventDefault();
-        if (assistOpen) {
-          setAssistOpen(false);
-          textareaRef.current?.focus();
-        } else {
-          syncSelection();
-          const ta = textareaRef.current;
-          assistNeedsSelection.current = !!ta && ta.selectionEnd > ta.selectionStart;
-          setAssistOpen(true);
-        }
+        const inPanel = (document.activeElement as HTMLElement | null)?.closest('.ai-side');
+        if (inPanel) { setAiOpen(false); editorRef.current?.focus(); }
+        else openAi('refine');
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [assistOpen, doc, editing, find, syncSelection, toggleOutline]);
+  }, [currentSelection, doc, editing, find, openAi, setAiOpen, toggleOutline]);
 
   // ── Export ──────────────────────────────────────────────────────────────
+  /*
+   * Printing needs the typeset document, which only exists on screen while
+   * reading. While writing it is mounted off-screen for the length of the
+   * print, then dropped: keeping it rendered would re-typeset the whole
+   * document on every keystroke for a view nobody is looking at.
+   */
+  useEffect(() => {
+    if (!printing) return;
+    const frame = requestAnimationFrame(() => requestAnimationFrame(() => printPreview()));
+    const done = () => setPrinting(false);
+    window.addEventListener('afterprint', done);
+    const fallback = window.setTimeout(done, 1500);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('afterprint', done);
+      window.clearTimeout(fallback);
+    };
+  }, [printing]);
+
   const handleExport = useCallback((kind: 'link' | 'source' | 'copy' | 'print' | 'pdf') => {
     const body = doc.format === 'latex' ? wrapLatexDocument(doc.name, doc.content) : doc.content;
     if (kind === 'link') {
@@ -650,26 +667,22 @@ export function DocumentView({ plan, isOwner, editing, onEdit, onBack }: Documen
     } else if (kind === 'copy') {
       copyText(body).then(() => toast.success('Copied to clipboard'));
     } else if (kind === 'pdf') {
-      // The dialog reads the rendered HTML when it submits, so the preview has
-      // to exist. In code-only view it does not — and on a narrow window the
-      // way to make it exist is `preview`, since `split` renders nothing there.
-      if (effectiveMode === 'code') setViewMode(compact ? 'preview' : 'split');
       setShowPdf(true);
+    } else if (editing) {
+      setPrinting(true);
     } else {
-      if (effectiveMode === 'code') setViewMode(compact ? 'preview' : 'split');
-      // Let the preview paint before the print dialog samples the page.
-      requestAnimationFrame(() => printPreview());
+      printPreview();
     }
-  }, [compact, doc.content, doc.format, doc.name, effectiveMode, plan.id]);
+  }, [doc.content, doc.format, doc.name, editing, plan.id]);
 
-  const showEditor = effectiveMode !== 'preview';
-  const showPreview = effectiveMode !== 'code';
   /* Beside the document when there is room, over it when there is not. */
-  const showRail = showEditor && (compact ? railOpen : options.outline);
-  const hasSelection = selection.end > selection.start;
+  const showRail = editing && (compact ? railOpen : options.outline);
+  const surface: SurfaceMode = options.surface;
+  /** The typeset document, for the PDF dialog and the printer, while writing. */
+  const offscreen = editing && (showPdf || printing);
 
   return (
-    <div className="editor-root">
+    <div className="editor-root" data-editing={editing}>
       <EditorHeader
         name={doc.name}
         onRename={doc.setName}
@@ -678,29 +691,32 @@ export function DocumentView({ plan, isOwner, editing, onEdit, onBack }: Documen
         isAuthor={isOwner}
         onManageCoAuthors={() => setShowShare(true)}
         peers={doc.peers}
-        isSaving={doc.saveState === 'saving'}
-        isDirty={doc.saveState === 'dirty'}
+        saveState={doc.saveState}
         onSave={() => doc.save()}
         onBack={onBack}
-        onUndo={() => { textareaRef.current?.focus(); document.execCommand('undo'); }}
-        onRedo={() => { textareaRef.current?.focus(); document.execCommand('redo'); }}
-        viewMode={effectiveMode}
+        onUndo={() => editorRef.current?.undo()}
+        onRedo={() => editorRef.current?.redo()}
+        surface={surface}
+        onSurface={mode => updateOptions({ surface: mode })}
         compact={compact}
         editing={editing}
-        onEdit={onEdit}
-        onViewMode={setViewMode}
+        onMode={onMode}
         options={options}
         onOptions={updateOptions}
         onExport={handleExport}
+        docStyle={docStyle}
+        onDocStyle={setDocStyle}
       />
 
-      {showEditor && (
+      {editing && (
         <Toolbar
           format={doc.format}
-          onRun={edits.run}
+          onRun={runAction}
           onUploadImage={() => setShowImage(true)}
           outlineOpen={compact ? railOpen : options.outline}
           onToggleOutline={toggleOutline}
+          aiOpen={aiOpen}
+          onToggleAi={() => setAiOpen(!aiOpen)}
           onShowShortcuts={() => setShowShortcuts(true)}
         />
       )}
@@ -713,9 +729,9 @@ export function DocumentView({ plan, isOwner, editing, onEdit, onBack }: Documen
         />
       )}
 
-      {editing && <FindBar find={find} />}
+      {editing && <FindBar find={find} onDone={findDone} />}
 
-      <div className="editor-main" ref={mainRef}>
+      <div className="editor-main">
         {/* A scrim, only in the compact layout: there the rail is a drawer over
             the document, and a drawer that can be left open with no obvious way
             to close it is a trap. Wide, the rail is a column and dimming the
@@ -726,158 +742,111 @@ export function DocumentView({ plan, isOwner, editing, onEdit, onBack }: Documen
 
         {showRail && (
           <OutlineRail
-            format={doc.format}
-            projectName={doc.name}
-            content={doc.content}
-            documentNodes={outline}
+            tree={tree}
+            words={words}
             activeId={activeId}
             compact={compact}
             width={options.outlineWidth}
-            onWidth={next => updateOptions({ outlineWidth: next })}
-            onClose={() => (compact ? setRailOpen(false) : updateOptions({ outline: false }))}
+            onWidth={setOutlineWidth}
+            onClose={closeRail}
             onJump={goToSection}
-            onFocusSection={node => setFocusOffset(node ? node.offset : null)}
-            onInsertSection={insertSection}
+            onFocusSection={focusSection}
+            writer={writer}
             onDeleteSection={deleteSection}
             onRenameHeading={renameHeading}
             onShiftHeading={shiftHeading}
             onMoveHeading={moveHeading}
             onAddHeading={addHeading}
-            onApplyOutline={applyProposedOutline}
+            onOpenAi={openAi}
           />
         )}
 
-        {showEditor && (
-          <div
-            className="editor-pane"
-            ref={surfaceRef}
-            style={{ flex: showPreview ? splitRatio : 100 }}
-          >
-            <CodeSurface
+        {editing ? (
+          <div className="editor-pane doc-themed" ref={surfaceRef} {...styleAttrs}>
+            <LiveEditor
+              ref={editorRef}
               value={doc.content}
               onChange={handleChange}
-              onKeyDown={edits.onKeyDown}
-              onSelectionChange={syncSelection}
+              onSelection={onSelection}
               onDropText={handleDropText}
+              onBlur={closeSlash}
+              onImages={handleImages}
               format={doc.format}
-              textareaRef={textareaRef}
-              linesRef={linesRef}
+              mode={surface}
+              fontSize={options.fontSize}
+              lineNumbers={options.lineNumbers}
+              focusMode={options.focusMode}
               finds={find.matches}
               activeFind={find.current}
-              showLineNumbers={options.lineNumbers}
-              focusMode={options.focusMode}
-              fontSize={options.fontSize}
-              caret={caret}
               sectionLines={focusLines}
+              peers={doc.peers}
               placeholder={doc.format === 'latex'
-                ? '\\section{Introduction}\n\nStart writing — or press / for a menu of everything.'
-                : '# Start here\n\nWrite, or press / for a menu of everything.'}
+                ? '\\section{Introduction} — start writing, or press / for everything you can insert.'
+                : 'Start writing — or press / for everything you can insert.'}
             >
-              <PeerCursors textareaRef={textareaRef} content={doc.content} peers={doc.peers} />
-
               {slash && (
                 <SlashMenu
                   format={doc.format}
                   query={slash.query}
                   anchor={anchorForOffset(slash.start)}
                   onPick={runSlashAction}
-                  onClose={() => setSlash(null)}
+                  commands={slashCommands}
+                  onCommand={runSlashCommand}
+                  onClose={closeSlash}
                 />
               )}
 
-              {/* A quiet handle on the selection, rather than a panel that
-                  ambushes every time you highlight a word. */}
-              {hasSelection && !assistOpen && !slash && (
-                <Button
-                  variant="primary"
-                  size="md"
-                  shape="pill"
-                  elevation="float"
-                  className="ai-chip"
-                  style={anchorForOffset(selection.end) ?? undefined}
-                  onClick={() => setAssistOpen(true)}
-                >
-                  <Sparkles className="h-3 w-3" /> Edit with AI <Kbd variant="fill">⌘J</Kbd>
-                </Button>
-              )}
-
-              {assistOpen && (
-                <AiAssist
-                  anchor={anchorForOffset(hasSelection ? selection.end : caret)}
-                  selection={selection}
-                  content={doc.content}
-                  format={doc.format}
-                  title={doc.name}
-                  onReplace={replaceSelection}
-                  onInsertAfter={text => {
-                    edits.apply(insertBlock(doc.content, text, selection.end, separatorFor(doc.format)));
-                  }}
-                  onClose={() => setAssistOpen(false)}
-                />
-              )}
-            </CodeSurface>
+            </LiveEditor>
+          </div>
+        ) : (
+          <div className="editor-preview doc-themed" {...styleAttrs}>
+            <PreviewPane content={doc.content} format={doc.format} fontSize={options.fontSize} />
           </div>
         )}
 
-        {showEditor && showPreview && (
-          // `role="separator"` with a tabindex is a *focusable* separator, which
-          // is the one ARIA pattern that must also respond to the arrow keys —
-          // a split a mouse can move and a keyboard cannot is not resizable.
-          <div
-            className="editor-divider"
-            onMouseDown={startSplitDrag}
-            role="separator"
-            tabIndex={0}
-            aria-label="Resize the writing and preview panes"
-            aria-orientation="vertical"
-            aria-valuenow={Math.round(splitRatio)}
-            aria-valuemin={20}
-            aria-valuemax={80}
-            onKeyDown={event => {
-              const step = event.shiftKey ? 10 : 2;
-              if (event.key === 'ArrowLeft') setSplitRatio(r => Math.max(20, r - step));
-              else if (event.key === 'ArrowRight') setSplitRatio(r => Math.min(80, r + step));
-              else if (event.key === 'Home') setSplitRatio(50);
-              else return;
-              event.preventDefault();
-            }}
+        {/* The AI panel: its own column on the right, apart from the outline —
+            or a drawer over the document when the layout is compact. */}
+        {editing && compact && aiOpen && (
+          <div className="editor-rail-scrim" onClick={() => setAiOpen(false)} aria-hidden="true" />
+        )}
+        {editing && aiOpen && (
+          <AiPanel
+            queue={queue}
+            shelf={shelf}
+            subject={doc.name}
+            selection={selection}
+            content={doc.content}
+            format={doc.format}
+            title={doc.name}
+            outline={outline}
+            onReplace={replacePassage}
+            onInsertAfter={(at, text) => apply(insertBlock(contentRef.current, text, afterBlock(contentRef.current, at), separatorFor(doc.format)))}
+            onApplyOutline={applyProposedOutline}
+            focusSignal={aiFocus}
+            request={aiRequest}
+            onClose={() => setAiOpen(false)}
+            compact={compact}
+            writer={writer}
+            wordsOf={wordsOf}
+            onJump={goToSection}
           />
         )}
 
-        {/* `data-split` so the rendered sheet can stop centring itself when
-            there is a source pane beside it to be read against. */}
-        {showPreview && (
-          <div
-            className="editor-preview"
-            data-split={showEditor ? 'true' : undefined}
-            style={{ flex: showEditor ? 100 - splitRatio : 100 }}
-          >
-            <PreviewPane
-              ref={previewRef}
-              content={doc.content}
-              format={doc.format}
-              editing={editing}
-              fontSize={options.fontSize}
-              /*
-               * Clicking the rendered text moves the caret to the character
-               * that produced it — but only in split, where the source pane is
-               * right there to show it landing. In the full-screen preview
-               * inside an editing session there is nothing to see it happen
-               * in, and outside an editing session there is no caret at all.
-               */
-              onJumpToSource={showEditor ? jumpToSource : undefined}
-            />
+        {offscreen && (
+          <div className="editor-preview editor-print-source" aria-hidden="true">
+            <PreviewPane content={doc.content} format={doc.format} />
           </div>
         )}
       </div>
 
       {showPdf && (
         <ExportPdfDialog
+          initial={pdfFromDocStyle(docStyle)}
           title={doc.name}
           author={user?.given_name ? [user.given_name, user.family_name].filter(Boolean).join(' ') : null}
-          /* Read at submit time, not at open time: the preview keeps rendering
-             while the dialog is up, and the export should carry whatever the
-             document says when the button is actually pressed. */
+          /* Read at submit time, not at open time: the document can keep
+             changing while the dialog is up, and the export should carry
+             whatever it says when the button is actually pressed. */
           getHtml={() => document.querySelector('.doc-preview .doc-sheet')?.innerHTML ?? null}
           onClose={() => setShowPdf(false)}
         />
@@ -911,11 +880,8 @@ export function DocumentView({ plan, isOwner, editing, onEdit, onBack }: Documen
             open={showImage}
             onOpenChange={setShowImage}
             onInsert={url => {
-              const at = textareaRef.current?.selectionStart ?? doc.content.length;
-              const markup = doc.format === 'latex'
-                ? `\\begin{figure}[h]\n  \\centering\n  \\includegraphics[width=0.8\\textwidth]{${url}}\n\\end{figure}`
-                : `![](${url})`;
-              edits.apply(insertBlock(doc.content, markup, at, separatorFor(doc.format)));
+              const at = currentSelection().start;
+              apply(insertBlock(contentRef.current, imageMarkup(url), afterBlock(contentRef.current, at), separatorFor(doc.format)));
             }}
           />
         </>

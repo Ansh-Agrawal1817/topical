@@ -1,6 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { DocFormat, LessonPlan } from "@/lib/types";
-import { getDefaultCredential } from "@/lib/aiCredentials";
+import { getDefaultCredential, type AiProvider } from "@/lib/aiCredentials";
+import { AiKeyDeclined, requestAiKey } from "@/lib/aiKeyGate";
 
 /**
  * The HTTP client every call in this file goes through.
@@ -54,7 +55,19 @@ function aiHeaders(): Record<string, string> {
   };
 }
 
-/** Throw a descriptive Error if a response isn't OK; otherwise return it. */
+/**
+ * A failed API call, carrying its HTTP status — so a caller can tell "rate
+ * limited, try again shortly" (429/502/503/504) from "wrong key" (401), which
+ * a bare Error message could only be guessed from.
+ */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly retryAfterSeconds?: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/** Throw a descriptive ApiError if a response isn't OK; otherwise return it. */
 async function ensureOk(res: Response, message: string): Promise<Response> {
   if (res.ok) return res;
 
@@ -69,12 +82,21 @@ async function ensureOk(res: Response, message: string): Promise<Response> {
   } catch {
     // Not JSON — use the body as-is.
   }
-  throw new Error(detail || `${message} (${res.status} ${res.statusText})`);
+  const retryAfter = Number(res.headers.get("Retry-After"));
+  throw new ApiError(
+    detail || `${message} (${res.status} ${res.statusText})`,
+    res.status,
+    Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+  );
 }
 
 /** Issue one request, and throw a readable Error if it fails. */
 async function request(path: string, options: RequestOptions): Promise<Response> {
   const { method = "GET", body, form, query, ai, failure } = options;
+
+  // No key yet: ask for one and carry on with it, rather than sending a
+  // request that can only come back 400.
+  if (ai && !(await requestAiKey())) throw new AiKeyDeclined();
 
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -222,6 +244,69 @@ function aiText(path: string, body: unknown, failure: string): Promise<string> {
   return text(`/ai/${path}`, { method: "POST", body, ai: true, failure });
 }
 
+/** Past this, a key check reports a timeout rather than spinning. The server gives up at 20s. */
+const VERIFY_TIMEOUT_MS = 30_000;
+const MODELS_TIMEOUT_MS = 15_000;
+
+/**
+ * A request made with a key that is not saved yet, so its headers are given
+ * rather than read from storage. Deadline-bound, and cancellable by `signal`
+ * (which rejects with an AbortError).
+ */
+async function keyRequest(
+  path: string,
+  creds: { provider: AiProvider; model?: string; apiKey: string },
+  { signal, timeoutMs, failure }: { signal?: AbortSignal; timeoutMs: number; failure: string },
+): Promise<Response> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  const cancel = () => controller.abort();
+  signal?.addEventListener("abort", cancel);
+  try {
+    const res = await fetch(`${API_BASE}/ai/${path}`, {
+      method: "POST",
+      headers: { "X-AI-Provider": creds.provider, "X-AI-Model": creds.model ?? "", "X-AI-Api-Key": creds.apiKey },
+      credentials: "same-origin",
+      signal: controller.signal,
+    });
+    return await ensureOk(res, failure);
+  } catch (error) {
+    if (timedOut) throw new Error(`No answer from the provider in ${timeoutMs / 1000} seconds. Check your connection and try again.`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", cancel);
+  }
+}
+
+/**
+ * Try a key before it is saved, so a typo fails where it was typed rather
+ * than midway through writing a document. One tiny real completion on its
+ * own route, tried once, with a deadline at both ends.
+ */
+export async function verifyAiKey(
+  provider: AiProvider, model: string, apiKey: string, signal?: AbortSignal,
+): Promise<void> {
+  await keyRequest("verify-key", { provider, model, apiKey },
+    { signal, timeoutMs: VERIFY_TIMEOUT_MS, failure: "That key or model was rejected" });
+}
+
+export interface AiModel {
+  id: string;
+  /** Costs nothing on this provider (OpenRouter marks these). */
+  free: boolean;
+}
+
+/** The chat models a key can use, read live from the provider. Quick and free. */
+export async function listAiModels(
+  provider: AiProvider, apiKey: string, signal?: AbortSignal,
+): Promise<AiModel[]> {
+  const res = await keyRequest("models", { provider, apiKey },
+    { signal, timeoutMs: MODELS_TIMEOUT_MS, failure: "Could not load the models" });
+  return ((await res.json()) as { models: AiModel[] }).models;
+}
+
 /** The envelope both hierarchy endpoints return: a ```json fence inside JSON. */
 export type HierarchyEnvelope = { status: string; data?: { topics?: string } };
 
@@ -268,8 +353,14 @@ export interface SectionBody {
    * override the standing rules it contradicts.
    */
   instruction?: string;
-  /** Heading depth, so the section opens at the right level. */
+  /** Prose already in the document, so the new section sounds like it. */
+  style_sample?: string;
+  /** Heading depth as written in the markup, so the section opens at the right level. */
   level?: number;
+  /** The last lines of the document before this section, to continue from. */
+  lead_in?: string;
+  /** LaTeX labels already in the document ("tab:x → Table 2 (…)"), to reference and not redefine. */
+  labels?: string[];
 }
 
 /** Write one section of a document. Returns the model's raw markup. */
@@ -287,6 +378,32 @@ export interface TransformRequest {
   before?: string;
   after?: string;
   title?: string;
+  /** The headings the passage sits under — "Results > Error analysis". */
+  section?: string;
+  /** The document's headings, indented by depth. */
+  outline?: string;
+  /** The last attempt, when the writer asks for a different one. */
+  previous?: string;
+  /** Markup level of the section the passage is in: the edit adds no heading at or above it. */
+  level?: number;
+  /** LaTeX labels already in the document. */
+  labels?: string[];
+}
+
+export interface SourceHit {
+  url: string;
+  title: string;
+  snippet: string;
+}
+
+/** Top pages for a subject, for the context shelf. No model involved, so no key. */
+export async function findSources(query: string, limit = 5): Promise<SourceHit[]> {
+  const body = await json<{ sources: SourceHit[] }>("/ai/sources", {
+    method: "POST",
+    body: { query, limit },
+    failure: "Could not search for sources",
+  });
+  return body.sources;
 }
 
 /** Rewrite, extend, or explain one passage. Returns the model's plain text. */

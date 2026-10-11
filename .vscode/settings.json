@@ -1,4 +1,0 @@
-{
-  "python.defaultInterpreterPath": "${workspaceFolder}/ai_service/venv/bin/python",
-  "python.analysis.extraPaths": ["${workspaceFolder}/ai_service/venv/lib/python3.12/site-packages"]
-}

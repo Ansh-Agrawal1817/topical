@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Keyboard, ListTree, Slash, Upload } from 'lucide-react';
+import { ChevronDown, Keyboard, ListTree, Slash, Sparkles, Upload } from 'lucide-react';
 import type { DocFormat } from '@/lib/types';
 import { Button, Chip, IconButton, MenuItem, MenuPanel, Divider, Kbd } from '@/components/ui';
 import { actionById, TOOLBAR_GROUPS, type EditorAction } from '../lib/actions';
@@ -12,6 +12,9 @@ interface Props {
   /** Whether the outline rail is showing. */
   outlineOpen: boolean;
   onToggleOutline: () => void;
+  /** The AI panel, on the right of the document. */
+  aiOpen: boolean;
+  onToggleAi: () => void;
   /** Opens the keyboard-shortcut sheet. */
   onShowShortcuts: () => void;
 }
@@ -33,7 +36,7 @@ const SHORTCUT_HINT: Record<string, string> = {
  * Every button is the same action the `/` menu runs.
  */
 export function Toolbar({
-  format, onRun, onUploadImage, outlineOpen, onToggleOutline, onShowShortcuts,
+  format, onRun, onUploadImage, outlineOpen, onToggleOutline, aiOpen, onToggleAi, onShowShortcuts,
 }: Props) {
   const barRef = useRef<HTMLDivElement>(null);
   /**
@@ -234,6 +237,20 @@ export function Toolbar({
           <Slash className="h-3 w-3" aria-hidden="true" />
           type <Kbd>/</Kbd> for everything else
         </span>
+        {/* The AI panel's toggle mirrors the outline's: the two panels sit
+            either side of the document, and each opens from its own end. */}
+        <Button
+          variant="secondary"
+          size="md"
+          active={aiOpen}
+          onClick={onToggleAi}
+          aria-pressed={aiOpen}
+          title={aiOpen ? 'Hide the AI panel  ⌘J' : 'Show the AI panel  ⌘J'}
+          {...roving(index++)}
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          AI
+        </Button>
         <IconButton
           size="lg"
           onClick={onShowShortcuts}

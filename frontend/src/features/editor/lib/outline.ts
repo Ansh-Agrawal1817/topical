@@ -58,12 +58,27 @@ const LATEX_LEVELS: Record<string, number> = {
 
 // Both are anchored to the whole line, which is what keeps `% \section{...}`
 // and prose that merely mentions `\section{x}` mid-sentence out of the
-// outline. The LaTeX title is greedy to the last brace on the line, so
-// `\section{The \texttt{foo} problem}` keeps its braces instead of being cut
-// at the first one.
-const LATEX_HEADING =
-  /^([^\S\n]*\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\{)(.*)(\}[^\S\n]*)$/;
+// outline. The LaTeX title runs to the brace that *matches* the opening one,
+// so `\section{The \texttt{foo} problem}` keeps its inner braces and
+// `\subsection{Examples}\label{sec:x}` stops before the label — it used to
+// be greedy to the last brace on the line, which read that heading as
+// "Examplessec:x" and made a rename overwrite the label.
+const LATEX_HEADING = /^([^\S\n]*\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\{)/;
 const MDX_HEADING = /^([^\S\n]{0,3}(#{1,6})[^\S\n]+)(.*?)([^\S\n]*#*[^\S\n]*)$/;
+
+/** A LaTeX sectioning line as [whole, opening, command, title], or null. */
+function latexHeading(text: string): [string, string, string, string] | null {
+  const open = LATEX_HEADING.exec(text);
+  if (!open) return null;
+  let depth = 0;
+  for (let i = open[1].length - 1; i < text.length; i++) {
+    const c = text[i];
+    if (c === '\\') { i++; continue; }
+    if (c === '{') depth++;
+    else if (c === '}' && --depth === 0) return [text, open[1], open[2], text.slice(open[1].length, i)];
+  }
+  return null;
+}
 
 /** Every heading in the document, with the depth its markup actually spells. */
 export function rawHeadings(content: string, format: DocFormat): RawHeading[] {
@@ -77,7 +92,7 @@ export function rawHeadings(content: string, format: DocFormat): RawHeading[] {
     if (format === 'mdx' && /^\s*```/.test(text)) {
       inFence = !inFence;
     } else if (!inFence) {
-      const match = (format === 'latex' ? LATEX_HEADING : MDX_HEADING).exec(text);
+      const match = format === 'latex' ? latexHeading(text) : MDX_HEADING.exec(text);
       if (match) {
         const [, opening, marker, title] = match;
         found.push({

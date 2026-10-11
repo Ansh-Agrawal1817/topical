@@ -133,12 +133,17 @@
        popovers each used to pick their own number — 5, 8, 9, 10, 11, 12,
        13, 14, 18, 20 and 22px all appeared — which is why nothing looked
        like it belonged to the same kit. */
-    --radius-xs: 5px;
-    --radius-sm: 7px;
-    --radius: 9px;        /* controls: buttons, inputs, chips */
-    --radius-md: 12px;
-    --radius-lg: 14px;    /* cards and panels */
-    --radius-xl: 18px;    /* dialogs and sheets */
+    /* Rounder since the Liquid Glass pass (2026-10-10): Apple's material
+       is soft-cornered, and corners are concentric — an inner shape's
+       radius is its container's minus the gap between them. Buttons are
+       capsules (`.btn` takes `--radius-pill`); these are for fields, rows,
+       sheets and dialogs. */
+    --radius-xs: 6px;
+    --radius-sm: 10px;
+    --radius: 12px;       /* fields, menu rows */
+    --radius-md: 16px;    /* rows, trays, menus */
+    --radius-lg: 22px;    /* cards and sheets */
+    --radius-xl: 28px;    /* dialogs */
     --radius-pill: 999px;
 
     /* ── Control heights ──
@@ -214,6 +219,11 @@
     --dur-underline: 520ms; /* the hero's drawn underline */
     --dur-flash: 1.2s;      /* the caret's one-shot landing flash */
     --stagger: 60ms;        /* step between staggered siblings */
+    /* Scroll-linked depth (the `Depth` primitive). The camera distance every
+       3D entrance on the marketing pages is seen from — one number, so the
+       pages share one lens instead of each block picking its own. */
+    --perspective: 1200px;
+    --dur-depth: 160ms;     /* smooths a wheel notch into a glide, no longer */
     /* Loops. Nothing ambient loops; these are progress and presence cues. */
     --dur-spin: 650ms;
     --dur-pulse: 1.1s;
@@ -331,9 +341,9 @@
 
        Warm glass, not cool glass: white pulled a few points toward the
        cream, or a pane over this ground reads faintly blue. */
-    --glass-tint: rgba(253, 251, 246, 0.72);
-    --glass-tint-strong: rgba(253, 251, 246, 0.88);
-    --glass-tint-weak: rgba(253, 251, 246, 0.55);
+    --glass-tint: rgba(253, 251, 246, 0.62);
+    --glass-tint-strong: rgba(253, 251, 246, 0.82);
+    --glass-tint-weak: rgba(253, 251, 246, 0.45);
 
     --glass-border: rgba(31, 28, 23, 0.10);
     --glass-border-hover: rgba(31, 28, 23, 0.18);
@@ -349,24 +359,64 @@
        four-direction specular rim that used to run around every pane drew a
        bright stripe down one side and a dark one down the other, which read
        as a misaligned border rather than as light. */
-    --glass-bevel: inset 0 1px 0 rgba(255, 255, 255, 0.60);
+    --glass-bevel: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 
     --glass-shadow:    var(--shadow-lg);
     --glass-shadow-lg: var(--shadow-pop);
+
+    /* ── Material (2026-10-10) ─────────────────────────────────────────
+       *Glass* (the tokens above) is the floating layer — nav, tab bar,
+       toolbars, dialogs — frosted at the strongest blur over whatever moves
+       beneath it. *Material* is for content sheets on the flat page plane:
+       a slightly translucent fill held by a hairline and a soft shadow.
+       No specular rims, no sheen, no refraction (that was Liquid Glass,
+       tried and rejected the same day). */
+    --material: rgba(255, 255, 255, 0.58);
+    --material-strong: rgba(255, 255, 255, 0.84);
+    --material-line: rgba(31, 28, 23, 0.09);
+    --material-sheen: rgba(255, 255, 255, 0);
+    --material-fill: linear-gradient(180deg, var(--material-sheen), rgba(255, 255, 255, 0) 6rem), var(--material);
+    /* A control on a sheet: a lighter frosted fill, and the solid chip
+       that marks the chosen item in a tray. */
+    --glass-control: rgba(255, 255, 255, 0.58);
+    --glass-control-hover: rgba(255, 255, 255, 0.86);
+    --glass-lens: var(--surface);
+    /* No specular edge: frosted material is matte. Kept as a transparent
+       shadow so `box-shadow: var(--rim), …` lists stay valid. */
+    --rim: 0 0 0 0 transparent;
+
+    /* ── Cosmos ───────────────────────────────────────────────────────
+       The marketing pages' sky (features/home/Cosmos.tsx reads these from
+       the canvas). In the light theme it is a star atlas printed on the
+       page — ink stars, hairline orbits, italic annotations — and in the
+       dark theme it is the night that atlas charts. The ember is the
+       accent, so the brightest thing in the sky is still the one hue. */
+    --cosmos-ground: var(--bg);
+    --cosmos-star: #2a251e;
+    --cosmos-dust: #a39a8b;
+    --cosmos-ember: #b85a36;
+    --cosmos-gold: #a8771f;
+    --cosmos-sea: #bfd3df;
+    --cosmos-deep: #93b1c6;
+    --cosmos-land: #f4ede0;
+    --cosmos-air: #6f93b8;
+    --cosmos-ring: rgba(31, 28, 23, 0.11);
+    --cosmos-label: #6d6558;
   }
 
   :root[data-theme='dark'] {
-    /* Warm charcoal, not neutral black — the dark theme is the same paper
-       seen under a different light, so the greys keep their warmth. */
-    --bg: #191714;
-    --bg-subtle: #131110;
-    --surface: #23211d;
-    --surface-2: #2c2925;
-    --surface-3: #37332d;
+    /* The landing's night, exactly: every page sits on the sky the home page
+       flies through (`--cosmos-ground` is this token). The greys keep their
+       warmth: it is still the paper, under lamplight. */
+    --bg: #0f0d0b;
+    --bg-subtle: #0b0a08;
+    --surface: #1c1a17;
+    --surface-2: #24221e;
+    --surface-3: #2f2c27;
 
-    --line-soft: #2a2723;
-    --line: #35312b;
-    --line-strong: #4a453d;
+    --line-soft: #242220;
+    --line: #2f2c28;
+    --line-strong: #46413a;
     --control-line: #78746c;
 
     --ink: #f5f2ec;
@@ -400,6 +450,20 @@
     --accent-line: rgba(224, 128, 90, 0.38);
     --accent-glow: rgba(224, 128, 90, 0.28);
 
+    /* Deeper than --bg: the page is paper under lamplight, the sky behind
+       the marketing pages is the night outside the window. */
+    --cosmos-ground: var(--bg);
+    --cosmos-star: #f6efe3;
+    --cosmos-dust: #8f8577;
+    --cosmos-ember: var(--accent-400);
+    --cosmos-gold: #f0c37a;
+    --cosmos-sea: #24476a;
+    --cosmos-deep: #0d1a26;
+    --cosmos-land: #8a8270;
+    --cosmos-air: #8fb5de;
+    --cosmos-ring: rgba(255, 244, 230, 0.09);
+    --cosmos-label: #a69c8d;
+
     --latex-500: #8fa3d8;
     --latex-300: #adbde8;
     --latex-soft: rgba(143, 163, 216, 0.14);
@@ -423,7 +487,7 @@
     --latex-rgb:   143 163 216;
     --info-rgb:    143 163 216;
 
-    --bg-rgb: 25 23 20;
+    --bg-rgb: 15 13 11;
     --shadow-rgb: 0 0 0;
     --scrim: rgba(10, 9, 8, 0.66);
 
@@ -441,16 +505,26 @@
        white — a white film over charcoal turns everything milky grey — and
        saturation is lifted less, because the charcoal behind it has little
        colour to recover. */
-    --glass-tint: rgba(40, 37, 32, 0.72);
-    --glass-tint-strong: rgba(35, 33, 29, 0.88);
+    --glass-tint: rgba(40, 37, 32, 0.64);
+    --glass-tint-strong: rgba(35, 33, 29, 0.84);
     --glass-tint-weak: rgba(44, 41, 37, 0.55);
     --glass-border: rgba(255, 252, 245, 0.10);
     --glass-border-hover: rgba(255, 252, 245, 0.20);
     --glass-saturate: 150%;
-    --glass-bevel: inset 0 1px 0 rgba(255, 252, 245, 0.07);
+    --glass-bevel: inset 0 1px 0 rgba(255, 252, 245, 0.06);
+
+    --material: rgba(36, 34, 30, 0.56);
+    --material-strong: rgba(44, 41, 37, 0.84);
+    --material-line: rgba(255, 250, 240, 0.08);
+    --material-sheen: rgba(255, 250, 240, 0);
+    --material-fill: linear-gradient(180deg, var(--material-sheen), rgba(255, 250, 240, 0) 6rem), var(--material);
+    --glass-control: rgba(255, 250, 240, 0.065);
+    --glass-control-hover: rgba(255, 250, 240, 0.11);
+    --glass-lens: var(--surface-3);
+    --rim: 0 0 0 0 transparent;
 
     /* shadcn bridge — the same palette as HSL triples. */
-    --background: 36 11% 9%;
+    --background: 30 15% 5%;
     --foreground: 40 31% 94%;
     --card: 40 9% 13%;
     --card-foreground: 40 31% 94%;
@@ -693,10 +767,10 @@ code.hljs { padding: 3px 5px; }
 }
 
 /* ─── Page ground ───
-   Flat. Glass belongs on chrome floating over *content* — a toolbar with
-   text scrolling under it — not on a decorative gradient laid behind
-   everything. A coloured wallpaper makes every pane look tinted and reads
-   as a background image, which is the opposite of a material. */
+   A flat material plane in the home page's colours (`--bg` is the
+   landing's `--cosmos-ground`). The sky — stars, light — belongs to the
+   home page alone, which paints its own over this; app screens are a plain
+   surface for the frosted sheets to rest on. */
 .grid-bg {
   position: fixed;
   inset: 0;
@@ -821,3 +895,33 @@ code.hljs { padding: 3px 5px; }
   background: var(--bg);
 }
 
+
+/* ── Tinted glass ──
+   The "Tinted" choice in Settings → Appearance: the same glass, more
+   opaque, so whatever passes beneath it never competes with its text. Both
+   themes set the same properties, so dark + tinted (more specific) always
+   replaces light + tinted completely. */
+@layer base {
+  :root[data-glass='tinted'] {
+    --glass-tint: rgba(253, 251, 246, 0.86);
+    --glass-tint-strong: rgba(253, 251, 246, 0.94);
+    --glass-tint-weak: rgba(253, 251, 246, 0.74);
+    --material: rgba(255, 255, 255, 0.88);
+    --glass-control: rgba(255, 255, 255, 0.82);
+  }
+  :root[data-theme='dark'][data-glass='tinted'] {
+    --glass-tint: rgba(36, 34, 30, 0.88);
+    --glass-tint-strong: rgba(32, 30, 27, 0.95);
+    --glass-tint-weak: rgba(40, 37, 33, 0.78);
+    --material: rgba(34, 32, 28, 0.9);
+    --glass-control: rgba(255, 250, 240, 0.09);
+  }
+
+  /* The OS asked for less transparency: content sheets go solid too. */
+  @media (prefers-reduced-transparency: reduce) {
+    :root, :root[data-glass='tinted'], :root[data-theme='dark'][data-glass='tinted'] {
+      --material: var(--surface);
+      --glass-control: var(--surface-2);
+    }
+  }
+}

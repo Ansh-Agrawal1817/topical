@@ -1,0 +1,413 @@
+/* The live writing surface (features/editor/live).
+
+   CodeMirror, dressed as the document. In live mode the text is set the
+   way it will read — the reading serif, a measure, headings at heading
+   size — and the markup that produces it is drawn small and grey, only
+   where the caret is. Source mode is the plain text in the mono, coloured
+   by what each piece of markup is.
+
+   CodeMirror ships a base theme of its own; anything here that has to beat
+   it says why. */
+
+.live-surface {
+  --live-size: 17px;
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.live-host { position: absolute; inset: 0; }
+.live-host .cm-editor { height: 100%; color: var(--ink); background: transparent; }
+.live-host .cm-scroller {
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  /* The page's side margins live here, not on the content. CodeMirror draws a
+     selection out to the edges of the content box, padding included — with
+     the margins inside it, selecting a line painted a band across the empty
+     margins on both sides and a stray step into the left one. */
+  padding-inline: 2.5rem;
+}
+.live-surface[data-mode='source'] .cm-scroller { padding-inline: 0 1.75rem; }
+
+/* ── The page ── */
+.live-host .cm-content {
+  box-sizing: border-box;
+  max-width: 41rem;
+  margin: 0 auto;
+  padding: 3.25rem 0 42vh;
+  font-family: var(--font-serif);
+  font-size: var(--live-size);
+  font-optical-sizing: auto;
+  line-height: 1.72;
+  caret-color: var(--accent-500);
+}
+.live-host .cm-line { padding: 0 2px; }
+.live-surface[data-mode='source'] .cm-content {
+  max-width: none;
+  margin: 0;
+  padding: 1.75rem 1.75rem 42vh;
+  font-family: var(--font-mono);
+  font-size: calc(var(--live-size) * 0.88);
+  line-height: 1.75;
+  color: var(--ink-2);
+}
+.live-host .cm-placeholder { color: var(--ink-ghost); font-style: italic; }
+
+/* The caret and the selection. CodeMirror's base theme sets the selection
+   at a specificity a single class cannot beat. */
+.live-host .cm-cursor, .live-host .cm-dropCursor { border-left: 2px solid var(--accent-500); margin-left: -1px; }
+.live-host .cm-selectionBackground,
+.live-host .cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {
+  background: rgb(var(--accent-rgb) / 0.2) !important;
+}
+.live-host .cm-content ::selection { background: transparent; }
+.live-host .cm-activeLine { background: transparent; }
+
+.live-host .cm-gutters {
+  border: 0;
+  color: var(--ink-ghost);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 0.72em;
+}
+.live-host .cm-lineNumbers .cm-gutterElement { padding: 0 0.6rem 0 1rem; min-width: 2.25rem; }
+.live-host .cm-activeLineGutter { background: transparent; color: var(--accent-500); }
+
+/* Focus mode: everything but the line being written steps back. */
+.live-surface[data-focus='true'] .cm-line { opacity: 0.3; transition: opacity var(--dur-base) var(--ease-out); }
+.live-surface[data-focus='true'] .cm-line.cm-activeLine,
+.live-surface[data-focus='true'] .cm-line.cm-section { opacity: 1; }
+
+/* ── Markup, where the caret is ── */
+.cm-live-marker {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--ink-ghost);
+}
+.cm-live-h .cm-live-marker { font-size: 0.55em; vertical-align: 0.22em; margin-right: 0.2em; }
+/* A heading's opening `##`, pulled out into the margin by its own width, so
+   the title stays exactly where it was set when the markup appears. */
+.cm-live-h .cm-live-hang { margin-left: calc(var(--hang) * -1ch - 0.2em); }
+@media (max-width: 720px) {
+  /* Too little margin to hang into: inline, as before. */
+  .cm-live-h .cm-live-hang { margin-left: 0; }
+}
+
+/* ── Headings ── */
+.live-host .cm-live-h {
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+.live-host .cm-live-h1 { font-size: 1.95em; padding-top: 0.75em; padding-bottom: 0.2em; letter-spacing: -0.022em; }
+.live-host .cm-live-h2 { font-size: 1.48em; padding-top: 0.75em; padding-bottom: 0.15em; }
+.live-host .cm-live-h3 { font-size: 1.22em; padding-top: 0.6em; }
+.live-host .cm-live-h4,
+.live-host .cm-live-h5,
+.live-host .cm-live-h6 { font-size: 1.04em; padding-top: 0.45em; }
+.live-host .cm-live-setext { font-size: 0.8em; line-height: 1.2; }
+
+/* ── Inline ── */
+.cm-live-strong { font-weight: 650; color: var(--ink); }
+.cm-live-em { font-style: italic; }
+.cm-live-strike { text-decoration: line-through; color: var(--ink-muted); }
+.cm-live-underline { text-decoration: underline; text-underline-offset: 3px; }
+.cm-live-tie { color: transparent; }
+.cm-live-smallcaps { font-variant: small-caps; letter-spacing: 0.02em; }
+.cm-live-code {
+  padding: 0.08em 0.32em;
+  border-radius: var(--radius-xs);
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  color: var(--syn-code, var(--ink));
+  background: var(--ink-a06);
+}
+.cm-live-link {
+  color: var(--accent-600);
+  text-decoration: underline;
+  text-decoration-color: var(--accent-line);
+  text-underline-offset: 3px;
+}
+.cm-live-footnote {
+  padding: 0 0.3em;
+  border-radius: var(--radius-xs);
+  font-size: 0.82em;
+  color: var(--ink-muted);
+  background: var(--ink-a04);
+}
+/* A table being edited is a grid of text: set in the mono so the padded
+   columns that Tab lays out actually line up. In the serif it read as a run
+   of prose broken by pipes. */
+.live-host .cm-line.cm-live-table-src {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  line-height: 1.85;
+  color: var(--ink-2);
+}
+.cm-live-html, .cm-live-ref-src, .cm-live-table-src .cm-live-marker {
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  color: var(--ink-faint);
+}
+.cm-live-comment {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  font-style: italic;
+  color: var(--ink-ghost);
+}
+
+/* ── Lists ── */
+.cm-live-bullet {
+  display: inline-block;
+  min-width: 1.1em;
+  font-weight: 700;
+  color: var(--accent-500);
+}
+.cm-live-bullet--number { min-width: 1.6em; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cm-live-number { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--accent-500); }
+/* Drawn here, not left to the platform: the native box picked up the app's
+   form styles and came out as a solid square in the light theme. */
+.cm-live-check {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-grid;
+  place-content: center;
+  width: 0.95em;
+  height: 0.95em;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 0.55em 0 0;
+  padding: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 4px;
+  vertical-align: -0.12em;
+  background: var(--surface);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.cm-live-check:hover { border-color: var(--accent-400); }
+.cm-live-check:checked { border-color: var(--accent-500); background: var(--accent-500); }
+.cm-live-check:checked::after {
+  content: '';
+  width: 0.28em;
+  height: 0.5em;
+  margin-top: -0.08em;
+  border: solid var(--accent-ink);
+  border-width: 0 0.12em 0.12em 0;
+  transform: rotate(45deg);
+}
+.cm-live-done { color: var(--ink-faint); text-decoration: line-through; text-decoration-color: var(--line-strong); }
+
+/* ── Quotes and theorem-like blocks ── */
+.live-host .cm-live-quote {
+  border-left: 3px solid var(--line-strong);
+  padding-left: 1.1em;
+  font-style: italic;
+  color: var(--ink-2);
+}
+.live-host .cm-live-env-body,
+.live-host .cm-live-env-head { border-left: 2px solid var(--accent-line); padding-left: 1.1em; }
+.cm-live-label--theorem { margin-right: 0.45em; font-weight: 700; font-style: normal; color: var(--ink); }
+.cm-live-label--proof { margin-right: 0.45em; font-style: italic; color: var(--ink-2); }
+.cm-live-label--qed { color: var(--ink-muted); }
+/* A resolved reference reads as part of the sentence — "Table 2" in the
+   document's own face — marked only by the accent, as the read view does. */
+.cm-live-label--ref {
+  color: var(--accent-600);
+  text-decoration: underline dotted rgb(var(--accent-rgb) / 0.5);
+  text-underline-offset: 0.18em;
+  cursor: text;
+}
+/* "??", as LaTeX prints a reference to a label that does not exist. */
+.cm-live-label--ref-missing {
+  padding: 0 0.3em;
+  border-radius: var(--radius-xs);
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  color: var(--status-warning);
+  background: rgb(var(--warning-rgb) / 0.12);
+  cursor: help;
+}
+.cm-live-label--cite {
+  display: inline-block;
+  padding: 0 0.45em;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-sans);
+  font-size: 0.74em;
+  font-weight: 500;
+  line-height: 1.6;
+  vertical-align: 0.1em;
+  color: var(--accent-600);
+  background: var(--accent-soft);
+  cursor: text;
+}
+.cm-live-label--label { font-family: var(--font-mono); font-size: 0.7em; color: var(--ink-ghost); cursor: text; }
+/* A label on a heading is a note to the writer, not part of the title. */
+.live-host .cm-live-h .cm-live-label--label { margin-left: 0.6em; font-size: 0.42em; vertical-align: 0.35em; }
+/* A callout's kind — `[!NOTE]` — read as a label, not as a link. */
+.cm-live-callout { font-family: var(--font-sans); font-size: 0.72em; font-style: normal; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-500); }
+
+/* ── LaTeX's front matter and structure ── */
+.live-host .cm-live-title {
+  padding: 0.4em 0 0.1em;
+  font-size: 2.1em;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.022em;
+  text-align: center;
+}
+.live-host .cm-live-byline { font-style: italic; color: var(--ink-muted); text-align: center; }
+.live-host .cm-live-preamble,
+.live-host .cm-live-env-tag {
+  font-family: var(--font-mono);
+  font-size: 0.74em;
+  line-height: 1.6;
+  color: var(--ink-ghost);
+}
+/* A structural line off the caret: still there, barely. */
+.live-host .cm-live-folded { font-size: 0.5em; line-height: 1.1; }
+.cm-live-folded-text { opacity: 0.55; }
+
+/* ── Code blocks ── */
+.live-host .cm-live-codeblock,
+.live-host .cm-live-fence {
+  padding-left: 1.1em;
+  padding-right: 1.1em;
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  line-height: 1.65;
+  background: var(--surface-2);
+}
+.live-host .cm-live-codeblock { color: var(--ink-2); }
+.live-host .cm-live-fence { font-size: 0.74em; color: var(--ink-ghost); }
+.live-host .cm-live-fence--open { padding-top: 0.45em; border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.live-host .cm-live-fence--close { padding-bottom: 0.45em; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+/* Off the caret a fence is only the block's padding — and, on the opening
+   one, the language, labelled the way the read view labels it. */
+.live-host .cm-live-fence--quiet { color: transparent; }
+.live-host .cm-live-fence--quiet .cm-live-codelang {
+  color: var(--ink-faint);
+  font-size: 0.92em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* ── Rules, images, tables ── */
+.cm-live-rule {
+  display: inline-block;
+  width: 100%;
+  height: 1px;
+  vertical-align: middle;
+  background: var(--line-strong);
+}
+.cm-live-image { display: block; margin: 0.4em 0; cursor: text; }
+.cm-live-image img { display: block; max-width: 100%; max-height: 28rem; border-radius: var(--radius-sm); }
+.cm-live-image--broken {
+  padding: 0.6em 0.9em;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: 0.8em;
+  color: var(--ink-faint);
+}
+.cm-live-image--uploading {
+  border-color: var(--accent-line);
+  color: var(--ink-muted);
+  animation: status-pulse 1.4s var(--ease-out) infinite;
+}
+@media (prefers-reduced-motion: reduce) { .cm-live-image--uploading { animation: none; } }
+.cm-live-table { margin: 0.5em 0 0.7em; overflow-x: auto; cursor: text; }
+.cm-live-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-sans);
+  font-size: 0.86em;
+  font-variant-numeric: tabular-nums;
+}
+.cm-live-table th,
+.cm-live-table td { padding: 0.45em 0.75em; border-bottom: 1px solid var(--line); }
+.cm-live-table th { font-weight: 600; color: var(--ink); border-bottom-color: var(--line-strong); }
+.cm-live-table td { color: var(--ink-2); }
+.cm-live-table code { font-family: var(--font-mono); font-size: 0.9em; }
+
+/* ── Maths ── */
+.cm-live-math { cursor: text; }
+.cm-live-math .katex { font-size: 1.06em; }
+.cm-live-math--display { display: block; padding: 0.55em 0; overflow-x: auto; overflow-y: hidden; text-align: center; }
+.cm-live-math--display .katex-display { margin: 0; }
+.cm-math-error { font-family: var(--font-mono); font-size: 0.82em; color: var(--status-danger); }
+.cm-live-math-src { font-family: var(--font-mono); font-size: 0.84em; color: var(--latex-500); }
+.live-host .cm-live-math-block {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  color: var(--latex-500);
+  background: var(--latex-soft);
+}
+
+/* ── Marks from the screen ── */
+.cm-find { border-radius: 2px; background: rgb(var(--accent-rgb) / 0.2); }
+.cm-find--current { background: rgb(var(--accent-rgb) / 0.42); box-shadow: 0 0 0 1px rgb(var(--accent-rgb) / 0.6); }
+.live-host .cm-section {
+  background: rgb(var(--accent-rgb) / 0.05);
+  box-shadow: inset 2px 0 0 rgb(var(--accent-rgb) / 0.45);
+}
+.live-host .cm-flash { animation: cl-flash-out var(--dur-flash) var(--ease-out) forwards; border-radius: var(--radius-xs); }
+@media (prefers-reduced-motion: reduce) {
+  .live-host .cm-flash { animation-duration: calc(var(--dur-flash) / 2); }
+}
+
+/* Collaborators' carets, named, and their selections. */
+.cm-peer-caret {
+  position: relative;
+  margin: 0 -1px;
+  border-left: 2px solid var(--peer);
+}
+.cm-peer-name {
+  position: absolute;
+  bottom: 100%;
+  left: -2px;
+  padding: 1px 5px;
+  border-radius: 3px 3px 3px 0;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: #fff;
+  background: var(--peer);
+  pointer-events: none;
+  user-select: none;
+}
+.cm-peer-selection { background: color-mix(in srgb, var(--peer) 22%, transparent); }
+
+/* ── The source view's colours ── */
+.live-surface[data-mode='source'] .hl-heading { color: var(--accent-500); font-weight: 700; }
+.live-surface[data-mode='source'] .hl-strong { color: var(--ink); font-weight: 700; }
+.live-surface[data-mode='source'] .hl-em { font-style: italic; }
+.live-surface[data-mode='source'] .hl-strike { color: var(--ink-faint); text-decoration: line-through; }
+.live-surface[data-mode='source'] .hl-link { color: var(--syn-link); }
+.live-surface[data-mode='source'] .hl-code { color: var(--syn-code); }
+.live-surface[data-mode='source'] .hl-quote { color: var(--ink-muted); font-style: italic; }
+.live-surface[data-mode='source'] .hl-mark { color: var(--accent-500); }
+.live-surface[data-mode='source'] .hl-command { color: var(--syn-cmd); }
+.live-surface[data-mode='source'] .hl-math { color: var(--latex-500); }
+.live-surface[data-mode='source'] .hl-comment { color: var(--ink-ghost); font-style: italic; }
+.live-surface[data-mode='source'] .hl-tag { color: var(--syn-tag); }
+/* Live mode keeps the colour inside code, where source is what it is. */
+.live-surface[data-mode='live'] .cm-live-codeblock .hl-command,
+.live-surface[data-mode='live'] .cm-live-codeblock .hl-mark { color: var(--syn-cmd); }
+
+@media (max-width: 720px) {
+  .live-host .cm-scroller { padding-inline: 1.1rem; }
+  .live-host .cm-content { padding: 1.75rem 0 40vh; }
+}
+
+/* A LaTeX table drawn in the live page (widgets.ts FloatWidget): the read
+   view's own markup, set at the live page's size. */
+.live-host .cm-live-float { margin: 0.6em 0; font-size: 0.94em; cursor: text; }
+.live-host .cm-live-float .lx-table-wrap { margin: 0; }

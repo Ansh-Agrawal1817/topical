@@ -17,8 +17,9 @@ class SearchTopicsRequest(BaseModel):
 class GenerateSectionRequest(BaseModel):
     """One section of a document, written in its own pass.
 
-    ``source`` chooses what the model is grounded in — its own knowledge, a web
-    search for the topic, or pages the writer named. That is the only thing
+    ``source`` chooses what the model is grounded in: its own knowledge, or the
+    pages on the writer's context shelf (``urls``). "web" (Wikipedia for the
+    topic) is still accepted for older clients. That is the only thing
     that varied across the six endpoints this replaced; the prompt, the
     context, and the response were otherwise identical.
 
@@ -42,10 +43,26 @@ class GenerateSectionRequest(BaseModel):
     #: Its number in the outline — "2.3" — so the model knows where it sits.
     section_number: Optional[str] = None
     level: int = 1
+    #: A stretch of prose already in the document, so a new section reads as
+    #: the same writer's: voice, register, how maths and terms are written.
+    style_sample: Optional[str] = None
     #: What the writer asked for on top of the section's title — "keep it under
     #: 300 words", "lead with a worked example". Distinct from ``topic``, which
     #: says what the section is *about*: this says how it should be written.
     instruction: Optional[str] = None
+    #: The last lines of the document just before this section, so it picks
+    #: up where the reader is rather than restarting the subject.
+    lead_in: Optional[str] = None
+    #: LaTeX labels already in the document — "tab:errors → Table 2 (Error
+    #: rates)" — so the section can reference them and never redefine them.
+    labels: Optional[List[str]] = None
+
+
+class SourcesRequest(BaseModel):
+    """Find pages worth reading for a subject — the context shelf's "top 5"."""
+
+    query: str
+    limit: int = 5
 
 
 class TransformRequest(BaseModel):
@@ -58,6 +75,21 @@ class TransformRequest(BaseModel):
     before: Optional[str] = None
     after: Optional[str] = None
     title: Optional[str] = None
+    #: The headings the passage sits under, outermost first — "Results >
+    #: Error analysis". A rewrite that knows which section it is in keeps to
+    #: that section's job instead of drifting into its neighbours'.
+    section: Optional[str] = None
+    #: The document's headings, indented by depth: the whole shape the
+    #: passage belongs to, so terms and scope stay consistent with it.
+    outline: Optional[str] = None
+    #: What the last attempt returned, when the writer asks for another. A
+    #: retry sent the same prompt and, as often as not, got the same answer.
+    previous: Optional[str] = None
+    #: The heading level (as written in the markup) of the section the passage
+    #: sits in. No heading the edit adds may be at or above it.
+    level: Optional[int] = None
+    #: LaTeX labels already in the document, as for a section.
+    labels: Optional[List[str]] = None
 
 
 class OutlineFromDocumentRequest(BaseModel):

@@ -47,7 +47,7 @@ export function NewPostDialog({ onClose, onCreated }: NewPostDialogProps) {
   }
 
   return (
-    <Modal label="New post" onClose={onClose} overlayClassName="post-detail-overlay">
+    <Modal label="New post" onClose={onClose} overlayClassName="modal-overlay">
       {/* A real form, so Enter in the title submits and the browser knows what
           this is. It was a `<div>` with a button at the bottom, which means the
           one key everybody presses to finish a short form did nothing. */}

@@ -19,15 +19,24 @@ export interface LabelProps extends React.ComponentPropsWithoutRef<typeof LabelP
 }
 
 const Label = React.forwardRef<React.ElementRef<typeof LabelPrimitive.Root>, LabelProps>(
-  ({ className, requirement, aside, size = "md", children, ...props }, ref) => (
+  ({ className, requirement, aside, size = "md", asChild, children, ...props }, ref) => (
     <LabelPrimitive.Root
       ref={ref}
+      asChild={asChild}
       className={cn("label", size === "sm" && "label--sm", aside != null && "label--split", className)}
       {...props}
     >
-      {aside != null ? <span>{children}{requirement && <> <Requirement kind={requirement} /></>}</span> : children}
-      {aside == null && requirement && <Requirement kind={requirement} />}
-      {aside}
+      {/* With `asChild` the slot takes exactly one element. The requirement
+          and aside slots used to ride along as extra (even empty) children,
+          and Radix threw — taking the whole editor down the moment the
+          "Write this section" popover opened. */}
+      {asChild ? children : (
+        <>
+          {aside != null ? <span>{children}{requirement && <> <Requirement kind={requirement} /></>}</span> : children}
+          {aside == null && requirement && <Requirement kind={requirement} />}
+          {aside}
+        </>
+      )}
     </LabelPrimitive.Root>
   )
 )

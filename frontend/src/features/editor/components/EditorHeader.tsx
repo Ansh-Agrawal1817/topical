@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
-  ArrowLeft, Copy, Download, Eye, FileCode, FileDown, Printer, Redo2, Save,
-  Settings2, SplitSquareHorizontal, Undo2, ListTree, Check, Sun, Moon, Pencil, Link2,
+  ArrowLeft, Copy, Download, FileCode, FileDown, Printer, Redo2, Save,
+  Settings2, Undo2, ListTree, Check, Sun, Moon, Link2, PenLine, BookOpen, AlertTriangle,
 } from 'lucide-react';
 import { Button, IconButton, Spinner, Input, Segmented, MenuItem, MenuLabel, MenuPanel } from '@/components/ui';
 import { Collaborators } from '@/components/Collaborators';
@@ -9,7 +9,10 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { setTheme, useTheme } from '@/lib/theme';
 import type { AwarenessCursor } from '@/hooks/useYjsCollab';
 import { useDismiss } from '@/hooks/useDismiss';
-import type { ViewMode, ViewOptions } from '../lib/viewOptions';
+import type { SurfaceMode, ViewOptions } from '../lib/viewOptions';
+import type { DocStyle } from '../lib/docStyle';
+import type { SaveState } from '../hooks/useDocument';
+import { DocStyleControls, DocStyleMenu } from './DocStyleMenu';
 
 interface Props {
   name: string;
@@ -19,29 +22,44 @@ interface Props {
   isAuthor: boolean;
   onManageCoAuthors: () => void;
   peers: AwarenessCursor[];
-  isSaving: boolean;
-  isDirty: boolean;
+  /** Where the document's save stands — the button mirrors it. */
+  saveState: SaveState;
   onSave: () => void;
   onBack: () => void;
   onUndo: () => void;
   onRedo: () => void;
-  viewMode: ViewMode;
-  onViewMode: (mode: ViewMode) => void;
+  /** Live (the document as it reads) or source (the plain text). */
+  surface: SurfaceMode;
+  onSurface: (mode: SurfaceMode) => void;
   /** One-pane layout: the bar drops everything that is not load-bearing. */
   compact?: boolean;
-  /** Whether the writing surface is live, or this is the reading view. */
+  /** Whether the writing surface is live, or this is read mode. */
   editing: boolean;
-  /** Start writing. Absent for a viewer who may not. */
-  onEdit?: () => void;
+  /** Switch between reading and writing in place. Absent for a viewer who may only read. */
+  onMode?: (mode: 'read' | 'write') => void;
   options: ViewOptions;
   onOptions: (next: Partial<ViewOptions>) => void;
   onExport: (kind: 'link' | 'source' | 'copy' | 'print' | 'pdf') => void;
+  /** This document's page, accent and font. */
+  docStyle: DocStyle;
+  onDocStyle: (patch: Partial<DocStyle>) => void;
 }
 
-const VIEWS: { mode: ViewMode; icon: typeof Eye; label: string }[] = [
-  { mode: 'code', icon: FileCode, label: 'Write' },
-  { mode: 'split', icon: SplitSquareHorizontal, label: 'Split' },
-  { mode: 'preview', icon: Eye, label: 'Read' },
+type ViewMode = 'read' | SurfaceMode;
+
+/* Autosave keeps the button's state moving on its own; the words stay short
+   and the button holds one width (editor.css), so the bar does not twitch
+   every time a save lands. */
+const SAVE_LABEL: Record<SaveState, string> = {
+  saved: 'Saved', dirty: 'Save', saving: 'Saving', error: 'Retry save',
+};
+
+/* Read is a mode of this screen, beside the two ways of writing — not a
+   separate page you leave the editor for. */
+const VIEWS: { mode: ViewMode; icon: typeof PenLine; label: string; title: string }[] = [
+  { mode: 'read', icon: BookOpen, label: 'Read', title: 'Read — the finished, typeset document' },
+  { mode: 'live', icon: PenLine, label: 'Live', title: 'Live — the document as it reads, markup shown where the caret is' },
+  { mode: 'source', icon: FileCode, label: 'Source', title: 'Source — the plain text, all its markup' },
 ];
 
 export function EditorHeader(props: Props) {
@@ -51,23 +69,9 @@ export function EditorHeader(props: Props) {
 
   const {
     name, onRename, authorUsername, coAuthorUsernames, isAuthor, onManageCoAuthors,
-    peers, isSaving, isDirty, onSave, onBack, onUndo, onRedo,
-    viewMode, onViewMode, options, onOptions, onExport, compact, editing, onEdit,
+    peers, saveState, onSave, onBack, onUndo, onRedo,
+    surface, onSurface, options, onOptions, onExport, compact, editing, onMode, docStyle, onDocStyle,
   } = props;
-
-  /*
-   * The switch offers what is actually reachable, and nothing else.
-   *
-   * Reading has one view, so the switch shows one option — it reads as a label
-   * for where you are rather than a control that lies about having somewhere
-   * to go. Writing offers all three, less Split below the breakpoint, where
-   * there is only ever one pane.
-   */
-  const views = !editing
-    ? VIEWS.filter(view => view.mode === 'preview')
-    : compact
-      ? VIEWS.filter(view => view.mode !== 'split')
-      : VIEWS;
 
   /* Declared once because they appear in one of two places: their own menu
      when there is room for a third header button, and inside the view menu
@@ -98,10 +102,9 @@ export function EditorHeader(props: Props) {
 
   return (
     <header className="editor-header">
-      {/* Up one level, which is this document's reading view — not the
-          projects list. Writing is a mode you switch into from reading, so
-          leaving it should put you back where you switched from. */}
-      <IconButton onClick={onBack} title="Done — back to reading" aria-label="Done — back to reading">
+      {/* Out to the projects list. Reading and writing are modes of this one
+          screen, switched in place below, so "back" always means leaving it. */}
+      <IconButton onClick={onBack} title="Back" aria-label="Back">
         <ArrowLeft className="h-4 w-4" />
       </IconButton>
 
@@ -181,23 +184,30 @@ export function EditorHeader(props: Props) {
         </>
       )}
 
-      {/* Labels off when there is no width for them — the icons carry it, and
-          each button keeps its accessible name. */}
-      <Segmented
-        size="sm"
-        iconOnly={compact}
-        className="ml-1"
-        aria-label="View"
-        value={viewMode}
-        onChange={onViewMode}
-        options={views.map(view => ({
-          value: view.mode,
-          label: view.label,
-          icon: <view.icon className="h-3.5 w-3.5" />,
-          title: view.label,
-          'aria-label': view.label,
-        }))}
-      />
+      {/* Read, Live or Source — for anyone who may write. A reader has one
+          view and no switch: a one-option control is a label pretending to
+          be a choice. */}
+      {onMode && (
+        <Segmented<ViewMode>
+          size="sm"
+          iconOnly={compact}
+          className="ml-1"
+          aria-label="View"
+          value={editing ? surface : 'read'}
+          onChange={next => {
+            if (next === 'read') { onMode('read'); return; }
+            onSurface(next);
+            if (!editing) onMode('write');
+          }}
+          options={VIEWS.map(view => ({
+            value: view.mode,
+            label: view.label,
+            icon: <view.icon className="h-3.5 w-3.5" />,
+            title: view.title,
+            'aria-label': view.label,
+          }))}
+        />
+      )}
 
       {/* ── Three controls, or one ──
           Wide, the theme switch, the view options and the export menu each get
@@ -207,6 +217,7 @@ export function EditorHeader(props: Props) {
           them. Nothing is dropped — the export actions move inside, and the
           theme becomes a row rather than a switch. */}
       <div className="editor-menus" ref={menuRef}>
+        {!compact && <DocStyleMenu style={docStyle} onChange={onDocStyle} />}
         {!compact && <ThemeToggle />}
 
         <div className="editor-menu-wrap">
@@ -221,18 +232,19 @@ export function EditorHeader(props: Props) {
           </IconButton>
 
           {menu === 'view' && (
-            <MenuPanel origin="top-right" className="editor-menu">
+            <MenuPanel origin="top-right" className={compact ? 'editor-menu editor-menu--compact' : 'editor-menu'}>
               {/* Every one of these is about the writing surface — a rail you
                   edit structure in, numbers on source lines, a focus band
-                  around the caret, and scroll sync between two panes. None of
-                  them has anything to act on while reading. */}
+                  around the caret. None of them has anything to act on while
+                  reading. */}
               {editing && (
                 <>
                   <MenuLabel>Layout</MenuLabel>
                   <MenuToggle label="Outline rail" icon={ListTree} on={options.outline} onClick={() => onOptions({ outline: !options.outline })} />
-                  <MenuToggle label="Line numbers" on={options.lineNumbers} onClick={() => onOptions({ lineNumbers: !options.lineNumbers })} />
                   <MenuToggle label="Focus mode" on={options.focusMode} onClick={() => onOptions({ focusMode: !options.focusMode })} />
-                  <MenuToggle label="Sync scrolling" on={options.syncScroll} onClick={() => onOptions({ syncScroll: !options.syncScroll })} />
+                  {options.surface === 'source' && (
+                    <MenuToggle label="Line numbers" on={options.lineNumbers} onClick={() => onOptions({ lineNumbers: !options.lineNumbers })} />
+                  )}
                 </>
               )}
 
@@ -263,6 +275,10 @@ export function EditorHeader(props: Props) {
 
                   <MenuLabel>Export</MenuLabel>
                   {exportItems}
+
+                  <div className="editor-menu-section">
+                    <DocStyleControls style={docStyle} onChange={onDocStyle} />
+                  </div>
                 </>
               )}
             </MenuPanel>
@@ -286,32 +302,29 @@ export function EditorHeader(props: Props) {
         )}
       </div>
 
-      {/* Reading offers the one control that changes what this screen is;
-          writing offers the one that commits it. Compact drops the word, not
-          the state — the icon still distinguishes saving from saved, and the
-          accessible name still says which. */}
-      {editing ? (
-        /* Secondary while writing: the outline rail's "Write sections" is that
-           view's primary action, and the document autosaves. Edit, below, is
-           primary: in reading mode it is the only action on the screen. */
+      {/* Writing offers the one control that commits it; read mode has
+          nothing to save. Compact drops the word, not the state — the icon
+          still distinguishes saving from saved, and the accessible name still
+          says which. Secondary: the document autosaves, and the outline
+          rail's "Write sections" is the view's primary action. */}
+      {editing && (
         <Button
           variant="secondary"
           size="md"
           density={compact ? 'tight' : 'default'}
+          className="editor-save"
+          data-state={saveState}
           onClick={onSave}
-          disabled={isSaving}
-          title={isSaving ? 'Saving' : isDirty ? 'Save' : 'Saved'}
-          aria-label={isSaving ? 'Saving' : isDirty ? 'Save' : 'Saved'}
+          title={`${SAVE_LABEL[saveState]}  ⌘S`}
+          aria-label={SAVE_LABEL[saveState]}
         >
-          {isSaving ? <Spinner size="sm" /> : <Save className="h-3.5 w-3.5" />}
-          {!compact && (isSaving ? 'Saving' : isDirty ? 'Save' : 'Saved')}
+          {saveState === 'saving' ? <Spinner size="sm" />
+            : saveState === 'error' ? <AlertTriangle className="h-3.5 w-3.5" />
+            : saveState === 'saved' ? <Check className="h-3.5 w-3.5" />
+            : <Save className="h-3.5 w-3.5" />}
+          {!compact && SAVE_LABEL[saveState]}
         </Button>
-      ) : onEdit ? (
-        <Button variant="primary" size="md" density={compact ? 'tight' : 'default'} onClick={onEdit} title="Edit" aria-label="Edit">
-          <Pencil className="h-3.5 w-3.5" />
-          {!compact && 'Edit'}
-        </Button>
-      ) : null}
+      )}
     </header>
   );
 }

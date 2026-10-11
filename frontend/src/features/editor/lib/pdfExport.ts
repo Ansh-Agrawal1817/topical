@@ -279,13 +279,6 @@ function paperCss(options: PdfOptions): string {
     #pdf .md-anchor,
     #pdf .md-copy,
     #pdf .lx-issues { display: none !important; }
-    /* The editor's "which section is selected" band is a screen state. */
-    #pdf .doc-focus {
-      background: none !important;
-      border-left: 0 !important;
-      margin-left: 0 !important;
-      padding-left: 0 !important;
-    }
 
     #pdf-cover {
       break-after: page;

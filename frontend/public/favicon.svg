@@ -1,14 +1,8 @@
-<!-- The mark, at tab size. It was a black tile with a green "T" — the colours
-     of a design language this product left behind, so the one piece of brand
-     that shows up outside the app was the only place the old one survived.
-     Terracotta on cream now, matching the mark in the nav bar.
-
-     A serif "T", because the wordmark is set in one and a tab is where the
-     two are seen side by side. Optical rather than geometric centring: the
-     serif's arms make the glyph read high and left of its own box. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="30" fill="#c25e38" />
-  <text x="64" y="96" text-anchor="middle"
-        font-family="Iowan Old Style, Charter, Georgia, 'Times New Roman', serif"
-        font-weight="600" font-size="92" fill="#faf9f5">T</text>
+<!-- The mark at tab size: the asterism from components/BrandMark.tsx, same
+     geometry, heavier strokes — at 16px a 2-unit ray is a single pixel and
+     the stars dissolve into dots. No tile behind it: terracotta on its own
+     holds up on both a light and a dark tab strip. Regenerate from the
+     STARS table in BrandMark.tsx if the glyph changes. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <path d="M12 6.4L12.00 2.20M12 6.4L15.03 4.65M12 6.4L15.38 8.35M12 6.4L12.00 10.40M12 6.4L8.88 8.20M12 6.4L8.71 4.50M6.2 16.8L9.72 17.55M6.2 16.8L7.19 19.84M6.2 16.8L3.86 19.40M6.2 16.8L2.58 16.03M6.2 16.8L5.24 13.85M6.2 16.8L8.48 14.27M17.8 16.8L21.03 15.75M17.8 16.8L20.03 18.81M17.8 16.8L17.11 20.03M17.8 16.8L14.47 17.88M17.8 16.8L15.57 14.79M17.8 16.8L18.47 13.67" fill="none" stroke="#d1683f" stroke-width="2.5" stroke-linecap="round"/>
 </svg>

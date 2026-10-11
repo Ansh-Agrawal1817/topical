@@ -42,10 +42,13 @@ class AppError(Exception):
     the wire.
     """
 
-    def __init__(self, message: str, status_code: int = status.HTTP_400_BAD_REQUEST):
+    def __init__(self, message: str, status_code: int = status.HTTP_400_BAD_REQUEST,
+                 headers: dict | None = None):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
+        #: e.g. Retry-After on a 429, so a client waits as long as the provider asked.
+        self.headers = headers
 
 
 class NotFound(AppError):
@@ -93,7 +96,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(AppError)
     async def _app_error(_: Request, exc: AppError) -> JSONResponse:
-        return error_response(exc.message, exc.status_code)
+        return error_response(exc.message, exc.status_code, headers=exc.headers)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:

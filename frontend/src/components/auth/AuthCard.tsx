@@ -37,6 +37,7 @@ export function AuthCard({
 }) {
   return (
     <div className="auth-shell">
+      <AuthSky />
       <div className="auth-layout">
         {pitch && <div className="auth-pitch">{pitch}</div>}
 
@@ -63,6 +64,51 @@ export function AuthCard({
   );
 }
 
+/* ─────────────────────────── The sky ─────────────────────────── */
+
+/** mulberry32: the same sky for every visit. */
+function seeded(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const SKY = (() => {
+  const rand = seeded(17);
+  return Array.from({ length: 150 }, () => ({ x: rand() * 1600, y: rand() * 1000, r: 0.5 + rand() ** 4 * 1.6, o: 0.15 + rand() * 0.55 }));
+})();
+
+/** A topic and its parts, as the landing page draws them: one star, and the ones it comes apart into. */
+const TOPIC = { x: 250, y: 150 };
+const PARTS = [
+  { x: 140, y: 85 }, { x: 360, y: 70 }, { x: 420, y: 175 }, { x: 165, y: 230 }, { x: 310, y: 255 },
+];
+
+/**
+ * The front door's sky: a scatter of faint stars and one topic coming apart
+ * into its parts, behind the pitch — the landing page's figure, held still,
+ * so arriving here from it feels like the same place. Ink on paper in the
+ * light theme, light on night in the dark.
+ */
+function AuthSky() {
+  return (
+    <svg className="auth-sky" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      {SKY.map((star, i) => <circle key={i} cx={star.x} cy={star.y} r={star.r} opacity={star.o} />)}
+      <g className="auth-sky-tree">
+        {PARTS.map((part, i) => <line key={i} x1={TOPIC.x} y1={TOPIC.y} x2={part.x} y2={part.y} />)}
+        {PARTS.map((part, i) => <circle key={`p${i}`} className="auth-sky-part" cx={part.x} cy={part.y} r={4} />)}
+        <circle className="auth-sky-topic" cx={TOPIC.x} cy={TOPIC.y} r={7} />
+        <circle className="auth-sky-core" cx={TOPIC.x} cy={TOPIC.y} r={2.6} />
+      </g>
+    </svg>
+  );
+}
+
 /* ─────────────────────────── Pitch ─────────────────────────── */
 
 /** The wide-screen column: what this is, and three reasons to believe it. */
@@ -79,7 +125,7 @@ export function AuthPitch({
     <>
       {/* The lockup, not a bare tile. A terracotta square on its own above a
           headline reads as a decoration that failed to load. */}
-      <div className="auth-pitch-brand"><BrandMark size="md" /></div>
+      <div className="auth-pitch-brand"><BrandMark size="lg" alive /></div>
       <h2 className="auth-pitch-title">{headline}</h2>
       <p className="auth-pitch-sub">{body}</p>
       <ul className="auth-points">

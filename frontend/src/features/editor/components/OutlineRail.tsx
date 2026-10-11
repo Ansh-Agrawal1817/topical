@@ -1,45 +1,23 @@
-import { useMemo, useRef, useState } from 'react';
-import { toast } from 'sonner';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { ListTree, PanelLeftClose, Plus, Sparkles } from 'lucide-react';
-import { Button, IconButton, Spinner, Input, ChipButton, TextLink, Progress } from '@/components/ui';
-import { errorMessage } from '@/lib/utils';
-import type { DocFormat } from '@/lib/types';
+import { Button, IconButton, Progress, Spinner } from '@/components/ui';
 import type { OutlineNode } from '../lib/outline';
-import { ancestorDepths, childTitles, indexOutline, sectionWords } from '../lib/tree';
-import { fetchHierarchy, outlineDraft, refinePlan, type RefinedPlan } from '../lib/generation';
+import { ancestorDepths, childTitles, type OutlineTree, type SectionWordCounts } from '../lib/tree';
 import { MAX_OUTLINE_WIDTH, MIN_OUTLINE_WIDTH } from '../lib/viewOptions';
 import { useDragResize } from '../hooks/useDragResize';
 import { useOutlineRows } from '../hooks/useOutlineRows';
-import { useSectionWriter } from '../hooks/useSectionWriter';
+import type { SectionWriter } from '../hooks/useSectionWriter';
 import { OutlineRow } from './OutlineRow';
-import { OutlineProposal } from './OutlineProposal';
-import { WritePopover, type WriteRequest } from './WritePopover';
-
-/**
- * Openers for the instruction box, once there is a structure to change.
- *
- * The chip is a short label; the text it writes is the whole instruction. As
- * full sentences they were each about as wide as the rail, so four of them
- * wrapped to four rows and the openers took more room than the box they were
- * opening. `caret: 'end'` marks the ones that are a prefix to be finished
- * rather than a complete instruction — those focus the field so the sentence
- * can be continued straight away.
- */
-const SUGGESTIONS: { label: string; text: string; unfinished?: boolean }[] = [
-  { label: 'Add a section', text: 'Add a section on ', unfinished: true },
-  { label: 'Reorder', text: 'Reorder so it builds logically' },
-  { label: 'Split', text: 'Split anything covering two ideas' },
-  { label: 'Trim', text: 'Trim it to the essentials' },
-  { label: 'Go deeper', text: 'Break the long sections into sub-sections' },
-];
+import type { AiFocus } from '../ai/AiPanel';
 
 interface Props {
-  format: DocFormat;
-  projectName: string;
-  /** Current document — outlining a draft reads it. */
-  content: string;
-  /** Headings actually present in the document right now. */
-  documentNodes: OutlineNode[];
+  /**
+   * The document's headings, indexed as a tree, and the words behind each.
+   * Computed once by the editor screen — the rail used to rebuild both from
+   * the raw text on every render, doubling the cost of every keystroke.
+   */
+  tree: OutlineTree;
+  words: SectionWordCounts;
   /** Id of the heading the caret is inside — not its title. See below. */
   activeId: string | null;
   /**
@@ -54,16 +32,17 @@ interface Props {
   onJump: (node: OutlineNode) => void;
   /** Show, in the document itself, the section a rail gesture is acting on. */
   onFocusSection: (node: OutlineNode | null) => void;
-  onInsertSection: (text: string, title: string, replace: boolean) => void;
   /** Remove a section and everything nested under it from the document. */
-  onDeleteSection: (title: string) => void;
+  onDeleteSection: (offset: number) => void;
   onRenameHeading: (offset: number, next: string) => void;
   onShiftHeading: (offset: number, delta: 1 | -1) => void;
   onMoveHeading: (offset: number, target: number, edge: 'top' | 'bottom') => void;
   /** Returns the offset of the heading it created. */
   onAddHeading: (afterOffset: number | null) => number;
-  /** Rewrite the document so its headings match a proposed outline. */
-  onApplyOutline: (plan: { title: string; level: number }[]) => void;
+  /** Section writing, shared with the AI panel's Write tab. */
+  writer: SectionWriter;
+  /** Open the AI panel on one of its tabs — or on Write, with one section to write. */
+  onOpenAi: (focus: AiFocus, section?: OutlineNode) => void;
 }
 
 /**
@@ -79,41 +58,23 @@ interface Props {
  * in its own component; what is left here is the arrangement and the calls
  * that restructure the whole outline at once.
  */
-export function OutlineRail({
-  format, projectName, content, documentNodes, activeId, compact, width, onWidth,
-  onClose, onJump, onFocusSection, onInsertSection, onDeleteSection,
-  onRenameHeading, onShiftHeading, onMoveHeading, onAddHeading, onApplyOutline,
+export const OutlineRail = memo(function OutlineRail({
+  tree, words, activeId, compact, width, onWidth,
+  onClose, onJump, onFocusSection, onDeleteSection,
+  onRenameHeading, onShiftHeading, onMoveHeading, onAddHeading,
+  writer, onOpenAi,
 }: Props) {
-  const [promptOpen, setPromptOpen] = useState(false);
-  const [promptValue, setPromptValue] = useState('');
-  const [working, setWorking] = useState(false);
-  const [proposal, setProposal] = useState<RefinedPlan | null>(null);
 
   // The rail renders the document's headings. There is no second copy of the
   // structure, so there is nothing to keep in step — editing a row edits the
   // page, and typing a heading into the page adds a row.
-  const nodes = documentNodes;
-
-  // Parents, children and subtree bounds, resolved once per outline instead of
-  // by re-scanning the flat list for every row that asks.
-  const tree = useMemo(() => indexOutline(nodes), [nodes]);
+  const nodes = tree.nodes;
   /* The sections the active row sits inside, each with how far above it is.
      Lighting only the active row tells you where the caret is but not where
      that *is*: in a deep outline a lit third-level row, with its parents
      looking identical to every other row, leaves you scanning upward to work
      out which chapter you are in. */
   const ancestors = useMemo(() => ancestorDepths(tree, activeId), [tree, activeId]);
-
-  /*
-   * How much is written under each heading, keyed by where the heading is.
-   *
-   * By title, this was wrong twice over. Two sections may legitimately share a
-   * name — an outline with four "Overview" rows gave all four the first one's
-   * count, and marked all four written as soon as any one of them was. And the
-   * per-title helper rebuilt the whole outline on every call, so drawing the
-   * rail cost one full scan of the document per row. This is one pass.
-   */
-  const words = useMemo(() => sectionWords(tree, content, format), [content, format, tree]);
 
   /**
    * What a row has written *itself*.
@@ -127,16 +88,6 @@ export function OutlineRail({
   /** What deleting a row would take with it — its children included. */
   const subtreeWordsOf = (node: OutlineNode) => words.subtree.get(node.offset) ?? 0;
 
-  /**
-   * Which button opened the write popover.
-   *
-   * A node writes that section; `'missing'` and `'all'` are the two bulk
-   * scopes. Nothing is requested until the popover is submitted, so the ✨ is
-   * now "ask me how", not "go".
-   */
-  const [asking, setAsking] = useState<OutlineNode | 'missing' | 'all' | null>(null);
-  const promptRef = useRef<HTMLInputElement>(null);
-
   const rows = useOutlineRows({
     nodes,
     childrenOf: node => {
@@ -147,13 +98,73 @@ export function OutlineRail({
     onRenameHeading, onShiftHeading, onMoveHeading, onAddHeading, onDeleteSection,
   });
 
-  const writer = useSectionWriter({
-    format, projectName, tree, wordsOf, onInsertSection, onFocusSection,
-  });
+  /*
+   * Row identity across edits: the title and which occurrence of it this is.
+   *
+   * Not the node id — that is the heading's offset, and every character typed
+   * above a heading moves it. Keyed on that, each keystroke unmounted and
+   * rebuilt every row below the caret (dozens of icons apiece), which was
+   * the single largest cost of typing in a long document.
+   */
+  const rowKeys = useMemo(() => {
+    const seen = new Map<string, number>();
+    return nodes.map(node => {
+      const n = (seen.get(node.label) ?? 0) + 1;
+      seen.set(node.label, n);
+      return `${node.label}\u0000${n}`;
+    });
+  }, [nodes]);
+
+  /*
+   * The rail by keyboard. A row's title is a button, so Tab reaches it; from
+   * there ↑/↓ walk the outline, ⌥↑/⌥↓ move the section past its neighbour,
+   * ⌥←/⌥→ change its depth, and F2 renames it. Focus follows a row that
+   * moves — it is found again by its key once the document has re-rendered.
+   */
+  const [refocus, setRefocus] = useState<{ key: string; from: OutlineNode[] } | null>(null);
+  useEffect(() => {
+    // Wait for the outline the move produced, not the one it started from.
+    if (!refocus || refocus.from === nodes) return;
+    const row = document.querySelector<HTMLElement>(`.outline-list [data-row-key="${CSS.escape(refocus.key)}"] .orow-name`);
+    row?.focus();
+    setRefocus(null);
+  }, [refocus, nodes]);
+
+  const rowKeyDown = (node: OutlineNode, index: number) => (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    const entry = tree.entries[index];
+    const siblings = entry.parent === null ? tree.roots : tree.entries[entry.parent].children;
+    const at = siblings.indexOf(index);
+    const focusRow = (i: number) => {
+      const rows = Array.from(document.querySelectorAll<HTMLElement>('.outline-list .orow-name'));
+      rows[Math.max(0, Math.min(rows.length - 1, i))]?.focus();
+    };
+    if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      event.preventDefault();
+      const neighbour = siblings[at + (event.key === 'ArrowUp' ? -1 : 1)];
+      if (neighbour === undefined) return;
+      onFocusSection(node);
+      onMoveHeading(node.offset, nodes[neighbour].offset, event.key === 'ArrowUp' ? 'top' : 'bottom');
+      setRefocus({ key: rowKeys[index], from: nodes });
+    } else if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      event.preventDefault();
+      onFocusSection(node);
+      onShiftHeading(node.offset, event.key === 'ArrowRight' ? 1 : -1);
+      setRefocus({ key: rowKeys[index], from: nodes });
+    } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      focusRow(index + (event.key === 'ArrowUp' ? -1 : 1));
+    } else if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      focusRow(event.key === 'Home' ? 0 : nodes.length - 1);
+    } else if (event.key === 'F2') {
+      event.preventDefault();
+      onFocusSection(node);
+      rows.startEdit(node);
+    }
+  };
 
   const written = nodes.filter(node => wordsOf(node) > 0).length;
   const totalWords = nodes.reduce((sum, node) => sum + wordsOf(node), 0);
-  const coverage = nodes.length ? Math.round((written / nodes.length) * 100) : 0;
 
   const startResize = useDragResize({
     from: () => width,
@@ -161,254 +172,87 @@ export function OutlineRail({
     onChange: onWidth,
   });
 
-  // ── AI over the structure ───────────────────────────────────────────────
-  /**
-   * One entry point, because there was never more than one intention behind
-   * the two buttons this replaced.
-   *
-   * "AI outline" and "Refine" asked the same question — what should this
-   * document's structure be — and differed only in whether a structure already
-   * existed. That is not something the writer should have to classify: with no
-   * outline the instruction is a subject, with one it is a change, and both
-   * come back as a proposal to accept or discard.
-   */
-  const runOutlineAi = async (instruction: string, fromDraft = false) => {
-    if (fromDraft && !content.trim()) {
-      toast.info('Write something first — this reads the page you already have.');
-      return;
-    }
-    if (!fromDraft && !nodes.length && !instruction.trim()) return;
-
-    setWorking(true);
-    try {
-      if (fromDraft) {
-        const plan = await outlineDraft(content, format);
-        setProposal({ summary: `Read the draft and proposed ${plan.length} sections.`, plan, changes: [] });
-      } else if (nodes.length) {
-        // There is a structure, so this is a change to it — and the model is
-        // told what each row already costs, since moving a section carrying
-        // 900 words is not the same proposition as moving an empty heading.
-        const result = await refinePlan(
-          nodes.map(node => ({ title: node.label, level: node.level, words: wordsOf(node) })),
-          projectName,
-          instruction,
-          format,
-        );
-        if (!result.changes.length) {
-          toast.info(result.summary || 'The model left the structure as it was.');
-        }
-        setProposal(result);
-      } else {
-        const plan = await fetchHierarchy(instruction);
-        setProposal({ summary: `Proposed ${plan.length} sections.`, plan, changes: [] });
-      }
-      setPromptOpen(false);
-      setPromptValue('');
-    } catch (error) {
-      toast.error(errorMessage(error, 'The outline request failed'));
-    } finally {
-      setWorking(false);
-    }
-  };
-
-  const applyProposal = () => {
-    if (!proposal) return;
-    onApplyOutline(proposal.plan);
-    rows.closeEdit();
-    onFocusSection(null);
-    setProposal(null);
-  };
-
   const addAtEnd = () => rows.addAfter(nodes[nodes.length - 1] ?? null);
-
-  /**
-   * Rewriting every section replaces prose that is already there, so it asks
-   * first — the same confirm deleting a section gets, counting the same thing
-   * it puts at risk. Writing only the empty ones takes nothing away and goes
-   * straight through.
-   */
-  const rewriteEverything = (instruction: string) => {
-    if (!written) { writer.writeAll('all', instruction); return; }
-    toast(`Rewrite all ${nodes.length} sections?`, {
-      description: `${totalWords} words across ${written} written section${written === 1 ? '' : 's'} will be replaced.`,
-      action: { label: 'Rewrite all', onClick: () => writer.writeAll('all', instruction) },
-      cancel: { label: 'Cancel', onClick: () => {} },
-    });
-  };
-
-  /** What the popover is about to act on, and the verb for it. */
-  const askTarget = asking === 'missing'
-    ? `${writer.missing} empty section${writer.missing === 1 ? '' : 's'}`
-    : asking === 'all'
-      ? `all ${nodes.length} section${nodes.length === 1 ? '' : 's'}`
-      : asking?.label ?? '';
-
-  const runAsk = ({ instruction, method, urls }: WriteRequest) => {
-    writer.setMethod(method);
-    writer.setUrls(urls);
-    const target = asking;
-    setAsking(null);
-    if (target === 'missing') writer.writeAll('missing', instruction);
-    else if (target === 'all') rewriteEverything(instruction);
-    else if (target) writer.writeSection(target, instruction);
-  };
 
   /** Every row gesture points the document at the row it is acting on. */
   const touching = (node: OutlineNode, run: () => void) => () => { onFocusSection(node); run(); };
 
-  const submitLabel = nodes.length ? 'Update outline' : 'Build outline';
-  const canSubmit = !working && (nodes.length > 0 || promptValue.trim().length > 0);
+  /** The sibling a row would move past, above (-1) or below (1). */
+  const neighbourOf = (index: number, step: -1 | 1) => {
+    const entry = tree.entries[index];
+    const siblings = entry.parent === null ? tree.roots : tree.entries[entry.parent].children;
+    return siblings[siblings.indexOf(index) + step];
+  };
+  const moveRow = (node: OutlineNode, index: number, step: -1 | 1) => {
+    const neighbour = neighbourOf(index, step);
+    if (neighbour === undefined) return;
+    onFocusSection(node);
+    onMoveHeading(node.offset, nodes[neighbour].offset, step === -1 ? 'top' : 'bottom');
+  };
 
   return (
     /* As a drawer the rail sizes itself from the viewport, so the stored width
        — a number chosen on a wide screen — is not applied. */
-    <aside className="outline-rail" data-drawer={compact || undefined} style={compact ? undefined : { width }}>
-      {/* The count is the rail's one piece of status: how much of the
-          structure is actually written. It says so in words — a bare "5/16"
-          in a pill is a number with no unit, and the tooltip that explained
-          it only reached people who already suspected it meant something. */}
-      <div className="outline-head">
-        <ListTree className="h-3.5 w-3.5" aria-hidden="true" />
-        <span>Outline</span>
-        {nodes.length > 0 && (
-          <span
-            className="outline-count"
-            title={`${written} of ${nodes.length} sections written · ${totalWords} words`}
-          >
-            {written}/{nodes.length} written
-          </span>
-        )}
-        <IconButton className="ml-auto" onClick={onClose} title="Hide outline  ⌘\" aria-label="Hide outline">
-          <PanelLeftClose className="h-3.5 w-3.5" />
-        </IconButton>
-      </div>
+    <aside className="outline-rail" data-drawer={compact || undefined} style={compact ? undefined : { width }} aria-label="Outline">
+      <header className="side-head">
+        <ListTree className="side-head-icon h-4 w-4" aria-hidden="true" />
+        <h2 className="side-head-title">Outline</h2>
+        <span className="side-head-tools">
+          {nodes.length > 0 && (
+            <IconButton size="md" onClick={() => onOpenAi('outline')} title="Restructure with AI" aria-label="Restructure the outline with AI">
+              <Sparkles className="h-4 w-4" />
+            </IconButton>
+          )}
+          <IconButton size="md" onClick={onClose} title="Hide outline  ⌘\" aria-label="Hide outline">
+            <PanelLeftClose className="h-4 w-4" />
+          </IconButton>
+        </span>
+      </header>
 
-      {/* Written-ness, once, as a line — rather than as a tick repeated down
-          every row of the list. */}
+      {/* How much of the structure is written, stated once — not as a tick
+          repeated down every row. */}
       {nodes.length > 0 && (
-        <Progress value={coverage / 100} className="outline-meter" />
-      )}
-
-      <div className="outline-actions">
-        <Button
-          variant="secondary"
-          size="xs"
-          width="full"
-          onClick={() => { setPromptOpen(open => !open); setPromptValue(''); }}
-          active={promptOpen}
-          disabled={working}
-          title={nodes.length ? 'Change the structure with an instruction' : 'Build the structure from a subject'}
-        >
-          {working ? <Spinner size="xs" /> : <Sparkles className="h-3 w-3" />}
-          AI outline
-        </Button>
-      </div>
-
-      {promptOpen && (
-        <form
-          className="orail-prompt"
-          onSubmit={event => { event.preventDefault(); runOutlineAi(promptValue); }}
-        >
-          <Input
-            ref={promptRef}
-            size="sm"
-            aria-label={nodes.length ? 'How to change the outline' : 'What this document is about'}
-            autoFocus
-            placeholder={nodes.length
-              ? 'Add a section on…, reorder, split, trim'
-              : 'What is this document about?'}
-            value={promptValue} onChange={event => setPromptValue(event.target.value)}
-          />
-
-          {/* Openers rather than presets: each one leaves the box editable, so
-              the common instructions cost a click and the unusual ones still
-              cost a sentence. */}
-          {nodes.length > 0 && (
-            <div className="orail-chips">
-              {SUGGESTIONS.map(suggestion => (
-                <ChipButton
-                  key={suggestion.label}
-                  title={suggestion.text.trim()}
-                  onClick={() => {
-                    setPromptValue(suggestion.text);
-                    // A prefix is only useful if the caret is waiting at the
-                    // end of it; a complete instruction is ready to submit.
-                    if (suggestion.unfinished) {
-                      requestAnimationFrame(() => {
-                        const el = promptRef.current;
-                        el?.focus();
-                        el?.setSelectionRange(suggestion.text.length, suggestion.text.length);
-                      });
-                    }
-                  }}
-                >
-                  {suggestion.label}
-                </ChipButton>
-              ))}
-            </div>
-          )}
-
-          <div className="orail-prompt-row">
-            <Button type="submit" variant="primary" size="xs" disabled={!canSubmit}>
-              {submitLabel}
-            </Button>
-            <TextLink size="2xs" onClick={() => runOutlineAi('', true)}
-              disabled={working}>
-              From what I've written
-            </TextLink>
+        <div className="side-stat">
+          <div className="side-stat-row">
+            <span><b>{written}</b> of {nodes.length} written</span>
+            <span className="side-stat-aside">{totalWords.toLocaleString()} words</span>
           </div>
-          {nodes.length > 0 && (
-            <p className="orail-note">Leave it blank to let the model decide what to change.</p>
-          )}
-        </form>
-      )}
-
-      {proposal && (
-        <OutlineProposal
-          proposal={proposal}
-          onApply={applyProposal}
-          onDiscard={() => setProposal(null)}
-        />
+          <Progress value={nodes.length ? written / nodes.length : 0} />
+        </div>
       )}
 
       {nodes.length === 0 ? (
-        // The only place the instructions live. They used to be pinned to the
-        // foot for the life of the document, where they were onboarding copy
-        // that never stopped onboarding; here they appear exactly while they
-        // are the thing you need.
         <div className="outline-empty">
-          <ListTree className="h-6 w-6" aria-hidden="true" />
-          <p className="outline-empty-title">No structure yet</p>
-          <p>Add sections by hand, or build the whole shape with <b>AI outline</b>.</p>
-          <Button variant="dashed" size="sm" className="mt-2.5" onClick={() => rows.addAfter(null)}>
-            <Plus className="h-3.5 w-3.5" /> Add the first section
-          </Button>
+          <span className="outline-empty-icon" aria-hidden="true"><ListTree className="h-5 w-5" /></span>
+          <p className="outline-empty-title">No sections yet</p>
+          <p>Give AI the subject and it proposes the whole structure — or add sections yourself.</p>
+          <div className="outline-empty-actions">
+            <Button variant="secondary" size="sm" onClick={() => onOpenAi('outline')}>
+              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> Build with AI
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => rows.addAfter(null)}>
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Add a section
+            </Button>
+          </div>
         </div>
       ) : (
         // A real list, so the count is announced and rows are navigable as
-        // items rather than as a run of anonymous buttons. The gestures are
-        // named here because they are mouse-only and appear in no menu.
-        <div
-          className="outline-list"
-          role="list"
-          aria-label={`Outline, ${nodes.length} sections`}
-          title="Click to jump · double-click to rename · drag to reorder"
-        >
-          {nodes.map(node => (
+        // items rather than as a run of anonymous buttons.
+        <div className="outline-list" role="list" aria-label={`Outline, ${nodes.length} sections`}>
+          {nodes.map((node, index) => (
             <OutlineRow
-              key={node.id}
+              key={rowKeys[index]}
+              rowKey={rowKeys[index]}
+              onRowKeyDown={rowKeyDown(node, index)}
               item={{ id: node.id, title: node.label, level: node.level }}
               status={writer.status[node.offset]}
               words={wordsOf(node)}
               // Identity is the node, never its text. Comparing titles lit up
-              // every row that happened to be called the same thing — an
-              // outline of h2/h3 headings highlighted half the rail at once.
+              // every row that happened to be called the same thing.
               active={node.id === activeId}
-              ancestorDepth={ancestors.get(node.id)}
-              busy={writer.busy}
-              /* The row button opens the popover, and the popover is where a
-                 URL would be entered — so it can never be blocked on one. */
-              canGenerate
+              onPath={ancestors.has(node.id)}
+              canMoveUp={neighbourOf(index, -1) !== undefined}
+              canMoveDown={neighbourOf(index, 1) !== undefined}
               editing={rows.editingOffset === node.offset}
               value={rows.editValue}
               onValue={rows.setEditValue}
@@ -416,9 +260,11 @@ export function OutlineRail({
               onCommit={rows.commitEdit}
               onKeyDown={rows.editKeys(node)}
               onPrimary={touching(node, () => onJump(node))}
-              onGenerate={touching(node, () => setAsking(node))}
+              onWrite={touching(node, () => onOpenAi('write', node))}
               onIndent={touching(node, () => onShiftHeading(node.offset, 1))}
               onOutdent={touching(node, () => onShiftHeading(node.offset, -1))}
+              onMoveUp={() => moveRow(node, index, -1)}
+              onMoveDown={() => moveRow(node, index, 1)}
               onAddAfter={touching(node, () => rows.addAfter(node))}
               onDelete={() => rows.deleteRow(node)}
               dragging={rows.dragOffset === node.offset}
@@ -429,102 +275,43 @@ export function OutlineRail({
               onDragEnd={rows.endDrag}
             />
           ))}
-          {/* Adding belongs at the end of the list, not pinned to the bottom
-              of the rail: it appends *there*, and putting the control where
-              its result appears is what stops it reading as a third,
-              unrelated "add" — the head icon and the foot button were the
-              other two, and both are gone. */}
-          <button className="orail-add-row" onClick={addAtEnd} title="Add a section at the end">
-            <Plus className="h-3 w-3" aria-hidden="true" /> Add section
+          {/* Adding belongs at the end of the list: it appends *there*. */}
+          <button type="button" className="outline-add" onClick={addAtEnd} title="Add a section at the end">
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Add section
           </button>
         </div>
       )}
 
-      <div className="outline-foot">
-        {/* The three-way source switch used to live here, permanently, above
-            the button it configured — a setting you had to get right *before*
-            knowing which section you were about to write, and the only place
-            in the product where "how should this be written" could not be
-            answered at all. Both now live in the popover that opens from the
-            button that uses them. */}
-
-        {writer.progress ? (
-          <div className="gen-run">
+      {/* Writing lives in the AI panel's Write tab; the foot is its shortcut,
+          and where a running batch stays visible from here. */}
+      {writer.progress ? (
+        <div className="outline-foot">
+          <button type="button" className="outline-run" onClick={() => onOpenAi('write')} title="Show the run in the AI panel">
+            <span className="outline-run-row">
+              <Spinner size="2xs" tone="accent" />
+              <span className="outline-run-text">
+                {writer.progress.retrying ? 'Waiting to retry' : 'Writing'} <b>{writer.progress.title}</b>
+              </span>
+              <span className="outline-run-count">{writer.progress.done}/{writer.progress.total}</span>
+            </span>
             <Progress size="md" value={writer.progress.done / writer.progress.total} label="Sections written" />
-            {/* Which section, not just how many. A bar that says 3/7 during a
-                four-minute run tells the writer nothing about what is landing
-                in their document. */}
-            <p className="gen-now" title={writer.progress.title}>
-              Writing <b>{writer.progress.title}</b>
-            </p>
-            <Button variant="primary" size="sm" width="full" onClick={writer.stop}>
-              Stop · {writer.progress.done}/{writer.progress.total}
-            </Button>
-          </div>
-        ) : (
-          <>
-            {/* The default writes what is *missing*. The single button here
-                used to rewrite every section every time, so adding one heading
-                to a finished draft and pressing the only control in the foot
-                regenerated the whole document — and the written/total count
-                above it had no bearing on what the button did. Rewriting
-                everything is still available; it is just no longer the thing
-                that happens by default. */}
-            <Button
-              variant="primary"
-              size="sm"
-              width="full"
-              onClick={() => setAsking(writer.missing ? 'missing' : 'all')}
-              disabled={writer.busy || !nodes.length}
-              title={writer.missing
-                ? 'Write the sections that have no content yet'
-                : 'Every section has content — this rewrites them all'}
-            >
-              <Sparkles className="h-3 w-3" aria-hidden="true" />
-              {writer.missing
-                ? `Write ${writer.missing} empty section${writer.missing === 1 ? '' : 's'}`
-                : `Rewrite all ${nodes.length} section${nodes.length === 1 ? '' : 's'}`}
-            </Button>
-
-            {writer.missing > 0 && written > 0 && (
-              <TextLink
-                size="2xs"
-                className="orail-foot-link"
-                onClick={() => setAsking('all')}
-                disabled={writer.busy}
-                title="Regenerate every section, replacing what is already written"
-              >
-                Rewrite all {nodes.length} instead
-              </TextLink>
-            )}
-          </>
-        )}
-      </div>
-
-      {asking && (
-        /* Over the rail, not over the document: everything it configures lives
-           here, and covering the prose to ask about the prose is the mistake
-           the inline panel had to be rescued from. */
-        <div className="write-pop-scrim" onClick={() => setAsking(null)}>
-          <WritePopover
-            target={askTarget}
-            bulk={asking === 'missing' || asking === 'all'}
-            rewriting={asking === 'all' || (typeof asking !== 'string' && wordsOf(asking) > 0)}
-            method={writer.method}
-            onMethod={writer.setMethod}
-            urls={writer.urls}
-            onUrls={writer.setUrls}
-            onWrite={runAsk}
-            onClose={() => setAsking(null)}
-          />
+          </button>
         </div>
-      )}
+      ) : writer.missing > 0 ? (
+        <div className="outline-foot">
+          <Button variant="secondary" size="sm" width="full" onClick={() => onOpenAi('write')}
+            title="Write the empty sections with AI — opens the AI panel">
+            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+            Write {writer.missing} empty section{writer.missing === 1 ? '' : 's'}…
+          </Button>
+        </div>
+      ) : null}
 
       {/* Nothing to resize against when the rail is a drawer, and a col-resize
           handle over the document's left edge on a touch screen is a trap. */}
       {!compact && (
-        <div className="outline-resize" onMouseDown={startResize} role="separator" aria-label="Resize outline" />
+        <div className="outline-resize" onMouseDown={startResize} role="separator" aria-orientation="vertical" aria-label="Resize outline" />
       )}
     </aside>
   );
-}
+});

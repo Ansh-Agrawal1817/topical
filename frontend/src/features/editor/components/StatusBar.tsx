@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Wifi, WifiOff } from 'lucide-react';
 import type { DocFormat } from '@/lib/types';
 import type { SaveState } from '../hooks/useDocument';
@@ -17,19 +18,37 @@ interface Props {
   format: DocFormat;
 }
 
-function savedLabel(state: SaveState, at: number | null): string {
-  if (state === 'saving') return 'Saving…';
-  if (state === 'dirty') return 'Unsaved changes';
+/*
+ * Autosave runs a moment after every pause, so "unsaved" is a state that
+ * lasts about a second. Announcing it as "Unsaved changes" made the bar
+ * flicker between alarms all session; it is the save in progress, and says so.
+ */
+function savedLabel(state: SaveState, at: number | null, now: number): string {
+  if (state === 'saving' || state === 'dirty') return 'Saving…';
+  if (state === 'error') return 'Couldn’t save — retrying';
   if (!at) return 'All changes saved';
-  const seconds = Math.round((Date.now() - at) / 1000);
+  const seconds = Math.round((now - at) / 1000);
   if (seconds < 45) return 'Saved just now';
-  return `Saved ${Math.round(seconds / 60)} min ago`;
+  const minutes = Math.round(seconds / 60);
+  return minutes < 60 ? `Saved ${minutes} min ago` : 'Saved over an hour ago';
+}
+
+/** Re-render every so often, so "Saved 3 min ago" does not stay "just now" forever. */
+function useMinuteClock(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const id = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, [active]);
+  return now;
 }
 
 /** Ambient feedback while writing: length, position, save and session state. */
 export function StatusBar({
   editing, saveState, lastSavedAt, stats, line, column, selectedWords, connected, peerCount, format,
 }: Props) {
+  const now = useMinuteClock(editing && saveState === 'saved' && lastSavedAt !== null);
   return (
     // A `contentinfo` landmark, so the bar is reachable by landmark navigation
     // rather than only by tabbing past the whole document.
@@ -41,9 +60,9 @@ export function StatusBar({
           bar that says "all changes saved" to someone who cannot make changes
           is reporting on a thing that is not happening. */}
       {editing && (
-        <span className="editor-status-item" role="status" aria-live="polite">
+        <span className="editor-status-item" role="status" aria-live="polite" data-state={saveState}>
           <span className="editor-status-dot" data-state={saveState} aria-hidden="true" />
-          {savedLabel(saveState, lastSavedAt)}
+          {savedLabel(saveState, lastSavedAt, now)}
         </span>
       )}
       {/* `--aux` marks the readings that are nice to have rather than needed.

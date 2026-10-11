@@ -6,8 +6,8 @@
  * decides — see the note there.
  */
 
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useCallback, useMemo, useState } from 'react';
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth-context';
@@ -17,12 +17,17 @@ import { documentRoute } from '@/lib/documentUrl';
 import { formatDate } from '@/lib/format';
 import type { DocFormat } from '@/lib/types';
 import { Plus, FolderOpen, LayoutGrid, List } from 'lucide-react';
+import { ContinueCard, WorkspaceCard } from '@/components/projects/WorkspaceCard';
 import { TopicStarter } from '@/components/projects/TopicStarter';
-import { DocumentCard, DocumentRow, wordCount } from '@/components/projects/DocumentCard';
-import { EmptyState, PageHeader, Refreshing, Button, SearchField, Segmented, Skeleton, Page, ConfirmDialog, Row, Grid, Stack, Heading } from '@/components/ui';
+import { EmptyState, PageHeader, Refreshing, Button, SearchField, Segmented, Skeleton, Page, ConfirmDialog } from '@/components/ui';
+import { wordsIn } from '@/lib/excerpt';
+import { documentContent } from '@/lib/documents';
 import { VisibilityChip } from '@/components/projects/VisibilityChip';
 
 export const Route = createFileRoute('/_authenticated/projects')({ component: ProjectsPage });
+
+/** Which documents the list shows. */
+type Filter = 'all' | 'drafts' | 'published' | 'shared';
 
 /** One shared empty list, so "no projects yet" is a stable reference. */
 const EMPTY: never[] = [];
@@ -30,7 +35,24 @@ const EMPTY: never[] = [];
 function ProjectsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const router = useRouter();
   const queryClient = useQueryClient();
+
+  /*
+   * The editor is its own chunk now (route code-splitting), and this is the
+   * page people open documents from — so it is fetched while they look at
+   * their list, and opening one does not wait on a download.
+   */
+  useEffect(() => {
+    const warm = () => { void router.loadRouteChunk(router.routesById['/projects/$format/$id']); };
+    // Safari has no requestIdleCallback; a short delay does the same job there.
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(warm, { timeout: 2000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = setTimeout(warm, 600);
+    return () => clearTimeout(id);
+  }, [router]);
 
   const [isCreating, setIsCreating] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -48,6 +70,7 @@ function ProjectsPage() {
   const [publishAsk, setPublishAsk] = useState<{ plan: LessonPlanResponse; next: boolean } | null>(null);
   const [publishingId, setPublishingId] = useState<number | null>(null);
   const [view, setView] = useState<'grid' | 'list'>('grid');
+  const [filter, setFilter] = useState<Filter>('all');
 
 
 
@@ -68,15 +91,26 @@ function ProjectsPage() {
      render with no data, which alone defeats every memo below it. */
   const projects = projectsData?.lessonPlans ?? EMPTY;
 
+  /** Most recently worked on first: the list is where you come back to work. */
+  const ordered = useMemo(() => [...projects].sort((a, b) =>
+    (b.updatedAt ?? b.createdAt ?? '').localeCompare(a.updatedAt ?? a.createdAt ?? '')), [projects]);
+
   const filtered = useMemo(() => {
     const needle = searchQuery.trim().toLowerCase();
-    return needle ? projects.filter(p => p.name.toLowerCase().includes(needle)) : projects;
-  }, [projects, searchQuery]);
+    return ordered.filter(p => {
+      if (needle && !p.name.toLowerCase().includes(needle)) return false;
+      if (filter === 'drafts') return !p.isPublic && p.userId === user?.id;
+      if (filter === 'published') return !!p.isPublic;
+      if (filter === 'shared') return p.userId !== user?.id;
+      return true;
+    });
+  }, [ordered, searchQuery, filter, user?.id]);
+  const sharedCount = projects.filter(p => p.userId !== user?.id).length;
 
   /*
    * Workspace stats — a document count alone said little about the work itself.
    *
-   * Memoised because `wordCount` is not cheap: it concatenates every section of
+   * Memoised because counting words is not cheap: it concatenates every section of
    * a document, runs a regex over the whole thing and splits it on whitespace.
    * Across a hundred documents that is megabytes of string work, and it was
    * running on *every* render of this page — including once per keystroke in
@@ -89,7 +123,7 @@ function ProjectsPage() {
     let publicCount = 0;
     let lastEdited: string | null = null;
     for (const plan of projects) {
-      totalWords += wordCount(plan);
+      totalWords += wordsIn(documentContent(plan.topics));
       if (plan.isPublic) publicCount += 1;
       const edited = plan.updatedAt ?? plan.createdAt;
       // One pass and a running maximum, rather than building an array of every
@@ -128,7 +162,7 @@ function ProjectsPage() {
       queryClient.invalidateQueries({ queryKey: ['user-lesson-plans'] });
       // Straight into writing — naming a topic is a statement of intent to
       // write, and it is the one case where skipping the reading view is right.
-      navigate(documentRoute(plan.id, plan.mainTopic, 'write'));
+      navigate(documentRoute(plan.id, plan.mainTopic));
     } catch {
       toast.error('Failed to create project');
     } finally {
@@ -145,10 +179,9 @@ function ProjectsPage() {
    * you can do with it once it is open is a property of the project and you,
    * not a choice made from a button on a card.
    */
-  const openDocument = useCallback((id: number) => {
-    const plan = projects.find(p => p.id === id);
-    navigate(documentRoute(id, plan?.mainTopic));
-  }, [navigate, projects]);
+  const openDocument = useCallback((plan: LessonPlanResponse) => {
+    navigate(documentRoute(plan.id, plan.mainTopic));
+  }, [navigate]);
 
   const handleDelete = async () => {
     if (!deleteId) return;
@@ -206,137 +239,126 @@ function ProjectsPage() {
     }
   };
 
+  const chip = (plan: LessonPlanResponse) => (
+    <VisibilityChip
+      isPublic={!!plan.isPublic}
+      canChange={user?.id === plan.userId}
+      busy={publishingId === plan.id}
+      name={plan.name}
+      onChange={next => askPublish(plan, next)}
+    />
+  );
+  const latest = ordered[0];
+
   return (
-    <Page className="relative z-10">
-      <div>
+    <Page className="workspace">
+      {/* The greeting is the small thing and the question is the large one. */}
+      <PageHeader
+        className="page-head--tight"
+        section="Workspace"
+        kicker={`${greeting}, ${user?.given_name || 'there'}.`}
+        title="What are you writing about?"
+      />
 
-        {/* The greeting is the small thing and the question is the large one.
-            It used to be the other way round: "Workspace" in display type over
-            a line of pleasantries, then four statistics at 24px, and only
-            after all of that the controls that actually start work. */}
-        <PageHeader
-          className="page-head--tight"
-          kicker={`${greeting}, ${user?.given_name || 'there'}.`}
-          title="What are you writing about?"
-        />
+      <TopicStarter onStart={handleStart} busy={isCreating} />
 
-        <TopicStarter onStart={handleStart} busy={isCreating} />
+      {projects.length > 0 && (
+        <p className="workspace-facts">
+          <span><b>{projects.length}</b> document{projects.length === 1 ? '' : 's'}</span>
+          <span><b>{totalWords.toLocaleString()}</b> words</span>
+          <span><b>{publicCount}</b> published</span>
+          {lastEdited && <span>last edited {formatDate(lastEdited)}</span>}
+        </p>
+      )}
 
-        {/* One quiet line, not a four-cell scoreboard. The facts are worth
-            having and none of them is worth 24px of numeral on a page whose
-            job is to start the next document. */}
+      {/* Where the work is: the document last touched, with what is next in it. */}
+      {latest && !searchQuery && filter === 'all' && (
+        <ContinueCard doc={latest} onContinue={plan => navigate(documentRoute(plan.id, plan.mainTopic))} />
+      )}
+
+      {/* ── Documents ── */}
+      <div className="ws-bar">
+        <h2 className="ws-heading">
+          Your documents
+          <Refreshing active={isFetching && !isLoading} />
+        </h2>
         {projects.length > 0 && (
-          <p className="workspace-facts">
-            <span><b>{projects.length}</b> document{projects.length === 1 ? '' : 's'}</span>
-            <span><b>{totalWords.toLocaleString()}</b> words</span>
-            <span><b>{publicCount}</b> published</span>
-            {lastEdited && <span>last edited {formatDate(lastEdited)}</span>}
-          </p>
+          <Segmented
+            variant="pills"
+            size="sm"
+            aria-label="Show"
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: 'all', label: 'All' },
+              { value: 'drafts', label: 'Drafts' },
+              { value: 'published', label: 'Published' },
+              ...(sharedCount ? [{ value: 'shared' as const, label: 'Shared with me' }] : []),
+            ]}
+          />
         )}
-
-        {/* ── Documents ── */}
-        <div>
-          <Row align="center" justify="between" gap={3} wrap className="mb-4">
-            <Row align="center" gap={3} as="span">
-              <Heading level={2} size="subsection">Your documents</Heading>
-              <Refreshing active={isFetching && !isLoading} />
-            </Row>
-            <Row align="center" gap={2.5}>
-              {projects.length > 0 && (
-                <SearchField
-                  className="w-52"
-                  placeholder="Search documents…"
-                  aria-label="Search documents"
-                  value={searchQuery}
-                  onValueChange={setSearchQuery}
-                  clearOnEscape
-                />
-              )}
-              <Segmented
-                aria-label="View mode"
-                iconOnly
-                value={view}
-                onChange={setView}
-                options={[
-                  { value: 'grid', label: 'Grid', icon: <LayoutGrid className="h-3.5 w-3.5" />, title: 'Grid view', 'aria-label': 'Grid view' },
-                  { value: 'list', label: 'List', icon: <List className="h-3.5 w-3.5" />, title: 'List view', 'aria-label': 'List view' },
-                ]}
-              />
-            </Row>
-          </Row>
-
-          {isLoading ? (
-            <Grid gap={4} cols={{ base: 1, sm: 2, lg: 3 }}>
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="doc-card">
-                  <Skeleton height={132} radius="none" />
-                  <div className="doc-body">
-                    <Skeleton height={16} width="75%" className="mb-2.5" />
-                    <Skeleton height={12} width="50%" />
-                  </div>
-                </div>
-              ))}
-            </Grid>
-          ) : filtered.length > 0 ? (
-            view === 'grid' ? (
-              <Grid gap={4} cols={{ base: 1, sm: 2, lg: 3 }}>
-                {filtered.map(plan => (
-                  <DocumentCard
-                    key={plan.id}
-                    doc={plan}
-                    isAuthor={user?.id === plan.userId}
-                    onOpen={openDocument}
-                    onDelete={setDeleteId}
-                    formatDate={formatDate}
-                  >
-                    <VisibilityChip
-                      isPublic={!!plan.isPublic}
-                      canChange={user?.id === plan.userId}
-                      busy={publishingId === plan.id}
-                      name={plan.name}
-                      onChange={next => askPublish(plan, next)}
-                    />
-                  </DocumentCard>
-                ))}
-              </Grid>
-            ) : (
-              <Stack gap={2}>
-                {filtered.map(plan => (
-                  <DocumentRow
-                    key={plan.id}
-                    doc={plan}
-                    isAuthor={user?.id === plan.userId}
-                    onOpen={openDocument}
-                    onDelete={setDeleteId}
-                    formatDate={formatDate}
-                  >
-                    <VisibilityChip
-                      isPublic={!!plan.isPublic}
-                      canChange={user?.id === plan.userId}
-                      busy={publishingId === plan.id}
-                      name={plan.name}
-                      onChange={next => askPublish(plan, next)}
-                    />
-                  </DocumentRow>
-                ))}
-              </Stack>
-            )
-          ) : (
-            <EmptyState
-              icon={FolderOpen}
-              title={searchQuery ? `No projects matching “${searchQuery}”` : 'No projects yet'}
-              description={searchQuery
-                ? 'Try a different search term.'
-                : 'Start a blank document and let AI draft the sections for you.'}
-              action={!searchQuery && (
-                <Button variant="primary" size="lg" onClick={() => document.getElementById('workspace-topic')?.focus()}>
-                  <Plus className="h-3.5 w-3.5" /> Name a topic
-                </Button>
-              )}
+        <span className="ws-bar-tools">
+          {projects.length > 0 && (
+            <SearchField
+              className="w-52"
+              placeholder="Search documents"
+              aria-label="Search documents"
+              value={searchQuery}
+              onValueChange={setSearchQuery}
+              clearOnEscape
             />
           )}
-        </div>
+          <Segmented
+            aria-label="View mode"
+            iconOnly
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'grid', label: 'Grid', icon: <LayoutGrid className="h-3.5 w-3.5" />, title: 'Grid view', 'aria-label': 'Grid view' },
+              { value: 'list', label: 'List', icon: <List className="h-3.5 w-3.5" />, title: 'List view', 'aria-label': 'List view' },
+            ]}
+          />
+        </span>
       </div>
+
+      {isLoading ? (
+        <div className="ws-grid" aria-hidden="true">
+          {[0, 1, 2].map(i => <Skeleton key={i} height={268} radius="lg" />)}
+        </div>
+      ) : filtered.length > 0 ? (
+        view === 'grid' ? (
+          <div className="ws-grid">
+            {filtered.map(plan => (
+              <WorkspaceCard key={plan.id} doc={plan} layout="card" isAuthor={user?.id === plan.userId} onOpen={openDocument} onDelete={setDeleteId}>
+                {chip(plan)}
+              </WorkspaceCard>
+            ))}
+          </div>
+        ) : (
+          <div className="ws-list">
+            {filtered.map(plan => (
+              <WorkspaceCard key={plan.id} doc={plan} layout="row" isAuthor={user?.id === plan.userId} onOpen={openDocument} onDelete={setDeleteId}>
+                {chip(plan)}
+              </WorkspaceCard>
+            ))}
+          </div>
+        )
+      ) : (
+        <EmptyState
+          icon={FolderOpen}
+          title={searchQuery ? `Nothing matches “${searchQuery}”` : filter !== 'all' ? 'Nothing here yet' : 'No documents yet'}
+          description={searchQuery
+            ? 'Try a different search term.'
+            : filter === 'published'
+              ? 'Publish a document from its card and it will appear in the community library.'
+              : 'Name a topic above — Topical drafts an outline and the sections with you.'}
+          action={!searchQuery && filter === 'all' && (
+            <Button variant="primary" size="lg" onClick={() => document.getElementById('workspace-topic')?.focus()}>
+              <Plus className="h-3.5 w-3.5" /> Name a topic
+            </Button>
+          )}
+        />
+      )}
 
       {/* ── Publish / unpublish confirmation ──
           Both directions are confirmed, and the copy differs because the two

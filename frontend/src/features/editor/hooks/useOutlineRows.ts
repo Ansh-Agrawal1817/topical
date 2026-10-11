@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { toast } from 'sonner';
+import { confirmAction } from '@/lib/confirm';
 import type { OutlineNode } from '../lib/outline';
 
 interface Options {
@@ -13,7 +13,7 @@ interface Options {
   onMoveHeading: (offset: number, target: number, edge: 'top' | 'bottom') => void;
   /** Returns the offset of the heading it created. */
   onAddHeading: (afterOffset: number | null) => number;
-  onDeleteSection: (title: string) => void;
+  onDeleteSection: (offset: number) => void;
 }
 
 /**
@@ -93,19 +93,20 @@ export function useOutlineRows({
   const deleteRow = (node: OutlineNode) => {
     const drop = () => {
       setEditingOffset(null);
-      onDeleteSection(node.label);
+      onDeleteSection(node.offset);
     };
     const words = wordsOf(node);
     if (!words) { drop(); return; }
 
     const nested = childrenOf(node).length;
-    toast(`Delete "${node.label}"?`, {
+    void confirmAction({
+      title: `Delete "${node.label}"?`,
       description: nested
         ? `${words} words, including ${nested} sub-section${nested === 1 ? '' : 's'}, will be removed from the document.`
         : `${words} words will be removed from the document.`,
-      action: { label: 'Delete', onClick: drop },
-      cancel: { label: 'Keep', onClick: () => {} },
-    });
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    }).then(yes => { if (yes) drop(); });
   };
 
   const endDrag = () => { setDragOffset(null); setDropAt(null); };

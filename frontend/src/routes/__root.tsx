@@ -12,12 +12,14 @@ import {
   Outlet,
   useRouterState,
 } from "@tanstack/react-router";
-import { Avatar, Button, IconButton, Kbd, Toaster, Row, Stack, Divider, Modal } from '@/components/ui';
+import { Avatar, Button, Divider, IconButton, Kbd, Toaster, Row, Stack } from '@/components/ui';
 import { OnboardingModal } from "@/components/OnboardingModal";
-import { GlassFilters } from "@/components/GlassFilters";
+import { AiKeyDialog } from "@/components/AiKeyDialog";
+import { ConfirmHost } from "@/components/ConfirmHost";
 import { type QueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Menu, X, Home, FolderOpen, Users, UserRound, Command } from "lucide-react";
+import { Command, FolderOpen, Users, Search, Settings } from "lucide-react";
+import { AccountMenu } from "@/components/AccountMenu";
 import { useAuth } from "@/lib/auth-context";
 import { CommandPalette } from "@/components/CommandPalette";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -33,55 +35,28 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 
 function NavBar({ onOpenCommand }: { onOpenCommand: () => void }) {
   const { isAuthenticated, user } = useAuth();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  /* The menu is `md:hidden`. Left open while the window widens past 768px it
-     would vanish but keep its focus trap and scroll lock, so it closes. */
-  useEffect(() => {
-    if (!isMobileMenuOpen) return;
-    const wide = window.matchMedia('(min-width: 768px)');
-    const close = () => { if (wide.matches) setIsMobileMenuOpen(false); };
-    close();
-    wide.addEventListener('change', close);
-    return () => wide.removeEventListener('change', close);
-  }, [isMobileMenuOpen]);
   /* Selected, not the whole router state. A bare `useRouterState()` subscribes
      this component to every field of it — including the transition status,
      which changes several times per navigation — so the nav re-rendered, and
-     re-measured its sliding indicator, repeatedly during a single route change.
+     re-measured its sliding lens, repeatedly during a single route change.
      The pathname is the only part it reads. */
   const currentPath = useRouterState({ select: state => state.location.pathname });
+  const isActive = (path: string) => currentPath === path || currentPath.startsWith(`${path}/`);
 
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 768) setIsMobileMenuOpen(false);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  const isActive = (path: string) => currentPath === path;
-
-  // Home lives on the brand mark and Profile lives on the avatar, so neither
-  // gets a second text link in the pill.
   const links = isAuthenticated
     ? [
-        { to: '/', label: 'Home', icon: Home },
         { to: '/projects', label: 'Projects', icon: FolderOpen },
         { to: '/community', label: 'Community', icon: Users },
-        { to: '/profile', label: 'Profile', icon: UserRound },
       ]
-    : [
-        { to: '/', label: 'Home', icon: Home },
-        { to: '/community', label: 'Community', icon: Users },
-      ];
+    : [{ to: '/community', label: 'Community', icon: Users }];
+  // The phone's tab bar carries Settings as well: there is no hover-revealed
+  // menu to find it in, and the avatar is a small target in the top corner.
+  const tabs = isAuthenticated ? [...links, { to: '/settings', label: 'Settings', icon: Settings }] : links;
 
-  const navLinks = links.filter(l => l.to !== '/' && l.to !== '/profile');
-
-  // The active pill is one element that slides, rather than a background on
-  // each link — so switching pages reads as movement instead of a jump cut.
+  // The lens that slides between links: one element that moves, so switching
+  // pages reads as the glass flowing to its new place rather than a jump cut.
   const shellRef = useRef<HTMLDivElement>(null);
   const [indicator, setIndicator] = useState<{ x: number; w: number } | null>(null);
-
   useEffect(() => {
     const measure = () => {
       const shell = shellRef.current;
@@ -91,11 +66,8 @@ function NavBar({ onOpenCommand }: { onOpenCommand: () => void }) {
       const a = active.getBoundingClientRect();
       const s = shell.getBoundingClientRect();
       const next = { x: a.left - s.left, w: a.width };
-      /* Bail out when nothing moved. `measure` runs on mount, on every path
-         change, on resize, and again when the fonts land — and each run set a
-         freshly-allocated object, so React saw a new value and re-rendered the
-         bar even when the pill was already exactly where it belonged. Half the
-         nav's renders during a navigation were this. */
+      /* Bail out when nothing moved: each run allocates a fresh object, and
+         React would re-render the bar for a lens already in place. */
       setIndicator(prev => (prev && prev.x === next.x && prev.w === next.w ? prev : next));
     };
     measure();
@@ -103,28 +75,29 @@ function NavBar({ onOpenCommand }: { onOpenCommand: () => void }) {
     // Fonts land after first paint and change link widths.
     document.fonts?.ready.then(measure).catch(() => {});
     return () => window.removeEventListener('resize', measure);
-  }, [currentPath, isAuthenticated, navLinks.length]);
+  }, [currentPath, isAuthenticated]);
 
-  const avatarName = user?.given_name || user?.username || null;
-  // The same picture the profile page shows: an upload wins, then whatever the
-  // identity provider gave us, and only then the letter.
-  const avatarSrc = user?.avatarUrl || user?.picture || null;
+  /* Content scrolls under the floating bar. Once it does, the bar takes a
+     deeper shadow, so the edge between glass and page stays legible. */
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // The marketing pages own the bottom of the screen; the tab bar is for the app.
+  const showTabBar = currentPath !== '/' && currentPath !== '/about';
 
   return (
     <>
-      {/* Desktop nav */}
-      {/* The bar floats over whatever is scrolling beneath it, so it is glass
-          rather than a solid pill — `nav-glass` supplies the tint and blur,
-          `liquid-glass` the specular rim. Colour, border and shadow are left
-          out of the inline styles below on purpose: an inline background
-          would beat both classes. */}
-      <nav
-        id="main-nav"
-        className="site-nav nav-glass liquid-glass"
-      >
-        {/* Logo / brand */}
-        <Link to="/" className="site-nav-home" data-active={isActive('/')}>
-          <BrandMark />
+      {/* Desktop: the glass pill floating over the page. `nav-glass` supplies
+          the tint and blur, `liquid-glass` the lit top edge. */}
+      <nav id="main-nav" className="site-nav nav-glass liquid-glass" data-scrolled={scrolled} aria-label="Main">
+        <Link to="/" className="site-nav-home" data-active={currentPath === '/'} aria-label="Topical home">
+          {/* Alive on the landing only: on app screens, seen all day, it keeps still. */}
+          <BrandMark alive={currentPath === '/'} />
         </Link>
 
         <Divider orientation="vertical" space="xs" />
@@ -132,14 +105,15 @@ function NavBar({ onOpenCommand }: { onOpenCommand: () => void }) {
         <div className="nav-shell" ref={shellRef}>
           <span
             className="nav-indicator"
+            aria-hidden="true"
             style={{
               width: indicator?.w ?? 0,
               transform: `translate(${indicator?.x ?? 0}px, -50%)`,
               opacity: indicator ? 1 : 0,
             }}
           />
-          {navLinks.map(({ to, label, icon: Icon }) => (
-            <Link key={to} to={to} className="nav-link" data-active={isActive(to)}>
+          {links.map(({ to, label, icon: Icon }) => (
+            <Link key={to} to={to} className="nav-link" data-active={isActive(to)} aria-current={isActive(to) ? 'page' : undefined}>
               <Icon className="h-3.5 w-3.5" />
               {label}
             </Link>
@@ -155,8 +129,8 @@ function NavBar({ onOpenCommand }: { onOpenCommand: () => void }) {
         <ThemeToggle className="ml-1" />
 
         {isAuthenticated ? (
-          <Link to="/profile" className="ml-2" title="Profile" aria-label="Profile">
-            <Avatar size="sm" shape="circle" className="nav-avatar" seed={user?.id} src={avatarSrc} name={avatarName} />
+          <Link to="/settings" className="ml-2" title="Settings" aria-label="Settings">
+            <Avatar size="sm" shape="circle" className="nav-avatar" seed={user?.id} src={user?.avatarUrl || user?.picture || null} name={user?.given_name || user?.username || null} />
           </Link>
         ) : (
           <Button asChild variant="primary" size="md" shape="pill" className="ml-1">
@@ -165,50 +139,35 @@ function NavBar({ onOpenCommand }: { onOpenCommand: () => void }) {
         )}
       </nav>
 
-      {/* Mobile top bar */}
-      <div className="mobile-bar">
-        <Link to="/">
-          <BrandMark size="md" />
+      {/* Phone: a slim bar at the top, and the places in a tab bar at the bottom, in thumb's reach. */}
+      <div className="mobile-bar nav-glass" data-scrolled={scrolled}>
+        <Link to="/" aria-label="Topical home">
+          <BrandMark size="md" alive={currentPath === '/'} />
         </Link>
         <Row align="center" gap={1}>
-          <ThemeToggle />
-          <IconButton
-            size="md"
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
-            aria-expanded={isMobileMenuOpen}
-          >
-            {isMobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
+          <IconButton size="lg" onClick={onOpenCommand} aria-label="Search and commands">
+            <Search className="h-4 w-4" />
           </IconButton>
+          {isAuthenticated ? <AccountMenu /> : (
+            <>
+              <ThemeToggle />
+              <Button asChild variant="primary" size="md" shape="pill">
+                <Link to="/login">Sign in</Link>
+              </Button>
+            </>
+          )}
         </Row>
       </div>
 
-      {/* Mobile menu */}
-      {isMobileMenuOpen && (
-        <Modal label="Menu" onClose={() => setIsMobileMenuOpen(false)} overlayClassName="fixed inset-0 z-[var(--z-float)] md:hidden mobile-menu-overlay">
-          <Stack className="h-full">
-            <div className="mobile-menu-head">
-              <Link to="/" onClick={() => setIsMobileMenuOpen(false)}>
-                <BrandMark size="md" />
-              </Link>
-              <IconButton size="lg" onClick={() => setIsMobileMenuOpen(false)} aria-label="Close menu"><X size={20} /></IconButton>
-            </div>
-            <Stack gap={1} className="p-6">
-              {links.map(link => (
-                <Link key={link.to} to={link.to} className="mobile-nav-link" onClick={() => setIsMobileMenuOpen(false)}>{link.label}</Link>
-              ))}
-              {!isAuthenticated && (
-                <Link
-                  to="/login"
-                  className="mobile-nav-link"
-                  onClick={() => setIsMobileMenuOpen(false)}
-                >
-                  Sign in
-                </Link>
-              )}
-            </Stack>
-          </Stack>
-        </Modal>
+      {showTabBar && (
+        <nav className="tab-bar nav-glass liquid-glass" aria-label="Sections">
+          {tabs.map(({ to, label, icon: Icon }) => (
+            <Link key={to} to={to} className="tab-bar-item" data-active={isActive(to)} aria-current={isActive(to) ? 'page' : undefined}>
+              <Icon className="h-5 w-5" aria-hidden="true" />
+              <span>{label}</span>
+            </Link>
+          ))}
+        </nav>
       )}
     </>
   );
@@ -234,6 +193,11 @@ function Root() {
    */
   const isEditorRoute = useRouterState({
     select: state => state.location.pathname.startsWith('/projects/'),
+  });
+  /* The marketing pages keep the bottom of a phone's screen; every other page
+     leaves room there for the tab bar. */
+  const isMarketing = useRouterState({
+    select: state => state.location.pathname === '/' || state.location.pathname === '/about',
   });
   const [commandOpen, setCommandOpen] = useState(false);
   /* Stable, because the palette memoises its command list against it. As an
@@ -262,9 +226,6 @@ function Root() {
        below the status bar. On the editor route the shell is pinned to the
        viewport and told not to scroll; every other route keeps growing. */
     <Stack className={isEditorRoute ? 'h-dvh overflow-hidden relative' : 'min-h-dvh relative'}>
-      {/* Unconditional: the editor hides the nav and the page ground, but its
-          own toolbars are glass and reference these by id. */}
-      <GlassFilters />
       {!isEditorRoute && <div className="grid-bg" />}
       {!isEditorRoute && <NavBar onOpenCommand={() => setCommandOpen(true)} />}
       <CommandPalette
@@ -273,7 +234,9 @@ function Root() {
         isAuthenticated={isAuthenticated}
       />
       <OnboardingModal />
-      <main className={`flex-1 w-full mx-auto relative z-10 ${isEditorRoute ? 'min-h-0' : 'px-4 py-6 mt-20 md:mt-24'}`}>
+      <AiKeyDialog />
+      <ConfirmHost />
+      <main className={`flex-1 w-full mx-auto relative z-10 ${isEditorRoute ? 'min-h-0' : `px-4 py-6 mt-20 md:mt-24 ${isMarketing ? '' : 'max-md:pb-28'}`}`}>
         <Outlet />
       </main>
       <Toaster />

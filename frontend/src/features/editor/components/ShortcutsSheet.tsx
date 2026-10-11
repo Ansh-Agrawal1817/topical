@@ -21,10 +21,11 @@ const COMMON: Section[] = [
   {
     title: 'Document',
     rows: [
-      { keys: ['⌘', 'S'], label: 'Save now' },
+      { keys: ['⌘', 'S'], label: 'Save now (it saves itself too)' },
       { keys: ['⌘', 'Z'], label: 'Undo' },
       { keys: ['⌘', '⇧', 'Z'], label: 'Redo' },
       { keys: ['⌘', 'F'], label: 'Find and replace' },
+      { keys: ['⌘', 'G'], label: 'Next match (⇧ for the previous)' },
       { keys: ['⌘', '\\'], label: 'Show or hide the outline' },
       { keys: ['⌘', '/'], label: 'This list' },
     ],
@@ -32,14 +33,27 @@ const COMMON: Section[] = [
   {
     title: 'Writing',
     rows: [
-      { keys: ['/'], label: 'Open the menu of every construct' },
-      { keys: ['⌘', 'J'], label: 'Rewrite the selection with AI' },
+      { keys: ['/'], label: 'Insert anything, or ask the AI' },
+      { keys: ['⌘', 'J'], label: 'Open the AI panel on the selection' },
       { keys: ['Tab'], label: 'Indent the current block' },
       { keys: ['⇧', 'Tab'], label: 'Outdent the current block' },
       { keys: ['Enter'], label: 'Continue a list or environment' },
+      { keys: ['⌘', 'Click'], label: 'Open a link' },
+      { keys: ['⌘', 'V'], label: 'Over selected words, a link links them' },
+      { keys: ['⌘', 'V'], label: 'Paste (or drop) an image to upload it' },
     ],
   },
 ];
+
+/** Pipe tables, edited as grids (lib/tables) — Markdown only. */
+const TABLES: Section = {
+  title: 'In a table',
+  rows: [
+    { keys: ['Tab'], label: 'Next cell, tidying the columns' },
+    { keys: ['⇧', 'Tab'], label: 'Previous cell' },
+    { keys: ['Enter'], label: 'Cell below — or out, from an empty row' },
+  ],
+};
 
 const MDX_FORMAT: Section = {
   title: 'Formatting',
@@ -55,12 +69,13 @@ const MDX_FORMAT: Section = {
 };
 
 const OUTLINE: Section = {
-  title: 'Outline rail',
+  title: 'Outline rail (on a section)',
   rows: [
-    { keys: ['Tab'], label: 'Indent a section (on a row)' },
-    { keys: ['⇧', 'Tab'], label: 'Outdent a section' },
-    { keys: ['Enter'], label: 'Rename the focused section' },
     { keys: ['↑', '↓'], label: 'Move between sections' },
+    { keys: ['Enter'], label: 'Go to the section' },
+    { keys: ['⌥', '↑', '↓'], label: 'Move the section up or down' },
+    { keys: ['⌥', '←', '→'], label: 'Outdent or indent the section' },
+    { keys: ['F2'], label: 'Rename (Tab / ⇧Tab change depth while renaming)' },
   ],
 };
 
@@ -71,7 +86,7 @@ export function ShortcutsSheet({
   onClose: () => void;
   format: DocFormat;
 }) {
-  const sections = [...COMMON, MDX_FORMAT, OUTLINE];
+  const sections = [...COMMON, MDX_FORMAT, ...(format === 'mdx' ? [TABLES] : []), OUTLINE];
 
   return (
     <Dialog open={open} onOpenChange={next => { if (!next) onClose(); }}>

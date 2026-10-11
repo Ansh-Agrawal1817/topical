@@ -1,6 +1,6 @@
 # Primitives catalogue
 
-Live catalogue. **Every new or changed primitive updates this file in the same change.** Last updated at the end of the 2026-09-30 audit (batch 10).
+Live catalogue. **Every new or changed primitive updates this file in the same change.** Last updated 2026-10-09 (cosmic landing: `Depth`, `Waypoint`, `IndexEntry`, `Ledger` added; `FeatureCard` removed).
 
 - **Directory:** `frontend/src/components/ui/`
 - **Index:** `components/ui/index.ts`. Import from `@/components/ui`, never from a file.
@@ -21,7 +21,11 @@ Live catalogue. **Every new or changed primitive updates this file in the same c
 | `IdentityBanner` | the header of a page *about a person* (`/u/:username`) | `seed`, `name`, `handle`, `bio`, `avatarUrl`, `meta`, `actions` |
 | `Row`, `Stack` | any flex row / column | `gap` (4px ladder: 0–12), `gapX`/`gapY`, `align`, `justify`, `wrap`, `inline`, `as` (incl. `form`, with `noValidate`), ref. Literal class tables, so Tailwind sees every class |
 | `Grid` | an n-column grid | `cols` 1–4 plus `sm`/`md`/`lg` breakpoints, `gap` |
-| `Band`, `SectionHead`, `FeatureCard` | marketing sections | Band `spacing` default/tight/hero · SectionHead `title`, `subtitle`, `eyebrow`, `size` section/hero, `align` start/center, `flush` · FeatureCard `variant` step/bento/wide/feature, `step`, `icon`, `footer` |
+| `Band`, `SectionHead` | marketing sections | Band `spacing` default/tight/hero/voyage (a landing stop: open sky above and below for scroll depth) · SectionHead `title`, `subtitle`, `eyebrow` (pass a `Waypoint`), `size` section/hero, `align` start/center, `flush` |
+| `Waypoint` | the mono line over a marketing section title ("02 — The map") | `index` (optional; adds the accent numeral and rule) |
+| `IndexEntry` | one item in a numbered run (capabilities, steps, convictions) | `n` (hanging numeral), `title`, `level` 3/4 (outline position), children = the body line. The list around it draws the hairlines |
+| `Ledger` | two columns answering each other row by row (model vs you, layer vs stack) | `heads` [left, right], `rows` [left, right][]; each cell carries its head for screen readers; rows rise in via `Depth` |
+| `Depth` | anything on a marketing page that should travel in 3D with the scroll | `variant` rise (default) / tilt (wide panel swinging upright) / recede (flies past as it leaves) / pass (rises to face you, then falls away past you) / swing-start / swing-end / track (motion-free, only publishes `--in`/`--out`/`--q` to children); `lag` 0–0.4 (stagger in space); `as` div/section/li/article/figure. One shared scroll listener; nothing tracked under reduced motion |
 | `PanelHeader` | the strip atop a popover, sheet or dialog: icon, title, close | `size` sm (popover over the document) / md (sheet, dialog); `onClose` + `closeLabel`; the title truncates |
 
 ### Type
@@ -79,7 +83,7 @@ Live catalogue. **Every new or changed primitive updates this file in the same c
 | `Modal` | a modal whose scrim and panel are the caller's (a sheet, the ⌘K palette, a full-screen menu) | `label` (required: the accessible name), `onClose`, `overlayClassName`, one panel element as the child. Radix supplies the focus trap, `aria-modal`, Escape, scrim click, scroll lock; focus goes to the panel (or an `autoFocus` field) and returns to the opener |
 
 ### Domain components that behave like primitives (outside `components/ui`)
-- `BrandMark`, `ThemeToggle` (an `IconButton`), `VisibilityChip` (a `Chip`/`ChipButton`), `Collaborators` (a `ChipButton` + popover)
+- `BrandMark` (lockup, `size` sm/md/lg), `BrandGlyph` (the ⁂ asterism alone, 1em), `ThemeToggle` (an `IconButton`), `VisibilityChip` (a `Chip`/`ChipButton`), `Collaborators` (a `ChipButton` + popover)
 - `ProviderTile` (`components/ProviderTile.tsx`): a connected AI provider, with an `actions` slot. Used by the profile and the providers screen
 - `MarkdownPreview` / `LatexPreview`, `CodeSurface`
 
@@ -90,7 +94,7 @@ Live catalogue. **Every new or changed primitive updates this file in the same c
 | category | element | covered by | status |
 |---|---|---|---|
 | layout | page | `Page` | OK |
-| layout | section | `PageHeader level=section`; `.band` | PARTIAL |
+| layout | section | `PageHeader level=section`; `Band` + `SectionHead` + `Waypoint` | PARTIAL |
 | layout | stack / row / grid / split / bar | `Stack`, `Row`, `Grid` / — / `PanelHeader` | OK / MISSING / PARTIAL |
 | type | heading | `Heading`, `PageHeader`, `SectionHead`, `CardTitle` | OK |
 | type | label | `Label`, `Field` | OK |

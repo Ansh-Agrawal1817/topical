@@ -347,36 +347,32 @@ export function insertBlock(doc: string, text: string, pos: number, separator: s
   return { content: head + (after ? separator : '') + after, start: head.length, end: head.length };
 }
 
-/** The block separator for a format. LaTeX has no `---` rule. */
-export function separatorFor(format: DocFormat): string {
-  return format === 'latex' ? '\n\n' : '\n\n---\n\n';
+/**
+ * The gap between two blocks: a blank line, in both formats.
+ *
+ * Markdown's used to be a `---` rule — a leftover from when a document was
+ * several topics joined end to end — so every image, dropped passage and
+ * "Insert below" from the AI panel arrived fenced between two horizontal
+ * rules that nobody had asked for.
+ */
+export function separatorFor(_format: DocFormat): string {
+  return '\n\n';
 }
 
 /**
- * Character offset within a textarea corresponding to a viewport point.
- *
- * Needed because a drop handler that calls `preventDefault()` suppresses the
- * browser's native caret-follows-drag behaviour, leaving `selectionStart` at
- * wherever the caret was *before* the drag — so dropped text landed in the
- * wrong place. Falls back to the current caret when the platform offers
- * neither caret API.
+ * Where a block inserted at `pos` should go: after the paragraph `pos` is in,
+ * not through the middle of it. A caret mid-sentence is where the writer was
+ * reading, not a request to cut the sentence in two around a figure.
  */
-export function caretIndexFromPoint(textarea: HTMLTextAreaElement, x: number, y: number): number {
-  const doc = document as Document & {
-    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
-  };
-
-  if (typeof doc.caretPositionFromPoint === 'function') {
-    const position = doc.caretPositionFromPoint(x, y);
-    if (position && textarea.contains(position.offsetNode)) return position.offset;
-    // Firefox reports the textarea itself as the offsetNode.
-    if (position && position.offsetNode === textarea) return position.offset;
-  }
-
-  if (typeof document.caretRangeFromPoint === 'function') {
-    const range = document.caretRangeFromPoint(x, y);
-    if (range) return range.startOffset;
-  }
-
-  return textarea.selectionStart;
+export function afterBlock(doc: string, pos: number): number {
+  const at = clamp(pos, 0, doc.length);
+  const lineStart = doc.lastIndexOf('\n', at - 1) + 1;
+  const lineEnd = doc.indexOf('\n', at);
+  // On a blank line, or at the very start of a line with nothing before it on
+  // the line: already between blocks.
+  if (!doc.slice(lineStart, lineEnd === -1 ? doc.length : lineEnd).trim()) return at;
+  const gap = /\n[^\S\n]*\n/g;
+  gap.lastIndex = at;
+  const found = gap.exec(doc);
+  return found ? found.index : doc.length;
 }

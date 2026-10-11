@@ -12,6 +12,7 @@
  * disappears from the page.
  */
 
+import { collectLabels, referenceText, type LabelTarget } from './labels';
 import katex from 'katex';
 import { lineAt } from '@/features/editor/lib/textOps';
 import { escapeHtml } from '@/lib/html';
@@ -530,8 +531,22 @@ function renderEnvironment(name: string, options: string, body: string, ctx: Con
       return renderTableFloat(body, ctx, bodyBase);
     case 'tabular':
     case 'tabularx':
-    case 'longtable':
-      return renderTabular(options, body, ctx);
+    case 'longtable': {
+      // The column spec is a *required* argument — `\begin{tabular}{|l|c|}` —
+      // which the environment parser leaves at the front of the body (it lifts
+      // only `[options]`). Read as a cell, it printed "|l|c|" into the first
+      // one. tabularx has a width argument before the spec; skip that too.
+      let rest = body.replace(/^\s+/, '');
+      const groups: string[] = [];
+      while (rest.startsWith('{') && groups.length < (name === 'tabularx' ? 2 : 1)) {
+        const close = matchBrace(rest, 0);
+        if (close < 0) break;
+        groups.push(rest.slice(1, close));
+        rest = rest.slice(close + 1);
+      }
+      const spec = groups.length ? groups[groups.length - 1] : options;
+      return renderTabular(spec, groups.length ? rest : body, ctx);
+    }
 
     case 'thebibliography':
       return collectBibliography(body, ctx);
@@ -808,6 +823,10 @@ const COMMANDS: Record<string, CommandSpec> = {
   },
   ref: { args: 1, render: args => referenceMark(args[0], false) },
   eqref: { args: 1, render: args => referenceMark(args[0], true) },
+  // "Table 2", "Equation (3)" — the kind named with the number.
+  autoref: { args: 1, render: args => referenceMark(args[0], 'auto') },
+  cref: { args: 1, render: args => referenceMark(args[0], 'auto') },
+  Cref: { args: 1, render: args => referenceMark(args[0], 'auto') },
   pageref: { args: 1, render: args => referenceMark(args[0], false) },
 
   cite: { args: 1, render: (args, ctx) => citationMark(args[0], ctx) },
@@ -984,7 +1003,7 @@ function skipWhitespace(src: string, at: number): number {
 // Cross-references, footnotes, bibliography
 // ═══════════════════════════════════════════════════════════════════════════
 
-function referenceMark(key: string, parenthesised: boolean): string {
+function referenceMark(key: string, parenthesised: boolean | 'auto'): string {
   return `<a class="lx-ref" href="#" data-ref="${escapeHtml(key.trim())}" data-paren="${parenthesised}">?</a>`;
 }
 
@@ -1006,15 +1025,22 @@ function citationMark(keys: string, ctx: Context): string {
  * normal in a document, so this cannot happen during the walk.
  */
 function resolveReferences(html: string, ctx: Context): string {
+  let kinds: Map<string, LabelTarget> | undefined;
   return html.replace(
-    /<a class="lx-ref" href="#" data-ref="([^"]*)" data-paren="(true|false)">\?<\/a>/g,
+    /<a class="lx-ref" href="#" data-ref="([^"]*)" data-paren="(true|false|auto)">\?<\/a>/g,
     (_, key: string, paren: string) => {
       const number = ctx.labels.get(key);
       if (!number) {
         ctx.issue(`Reference to an unknown label: ${key}`);
         return '<span class="lx-ref lx-ref-missing" title="No matching \\label">??</span>';
       }
-      const text = paren === 'true' ? `(${number})` : number;
+      // The kind's name comes from the same scan the live editor uses.
+      kinds ??= collectLabels(ctx.originalSource);
+      const text = paren === 'true'
+        ? `(${number})`
+        : paren === 'auto'
+          ? referenceText('autoref', kinds.get(key) ?? { number, kind: 'Section', name: '', title: '' }).trim()
+          : number;
       return `<span class="lx-ref">${text}</span>`;
     },
   );
@@ -1068,4 +1094,16 @@ function safeUrl(raw: string): string {
 
 function stripTags(html: string): string {
   return html.replace(/<[^>]*>/g, '').trim();
+}
+
+
+/** Index of the `}` that closes the `{` at `open`, or -1. */
+function matchBrace(text: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < text.length; i += 1) {
+    if (text[i] === '\\') { i += 1; continue; }
+    if (text[i] === '{') depth += 1;
+    else if (text[i] === '}' && --depth === 0) return i;
+  }
+  return -1;
 }

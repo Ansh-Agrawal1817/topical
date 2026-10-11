@@ -29,6 +29,9 @@ const router = createRouter({
   context: { queryClient },
   defaultNotFoundComponent: NotFound,
   defaultErrorComponent: RouteError,
+  // Routes are split into their own chunks (vite.config), so a link fetches
+  // its page's code the moment it is hovered or focused, not when clicked.
+  defaultPreload: 'intent',
 });
 
 // Register the router instance for type safety

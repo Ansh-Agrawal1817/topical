@@ -58,6 +58,12 @@
    up — which is precisely what the cards on the landing page looked like,
    dark down one side and bright down the other. */
 
+/* Since 2026-10-10: this file's floating chrome is frosted; content sheets
+   are flat material on a flat plane (tokens.css `--material-fill`), with no
+   blur — there is nothing behind them to frost. Nothing lenses or refracts — the SVG displacement
+   that used to bend the nav and dialogs was removed with the Liquid Glass
+   pass. The two rules above still hold. */
+
 /* ═══════════════════════════════════════════════════════════════════════
    Application — the four kinds of floating chrome
    ═══════════════════════════════════════════════════════════════════════ */
@@ -71,12 +77,20 @@
 .post-detail-panel,
 .new-post-dialog,
 .dialog-glass,
+.pdf-dialog,
 .mobile-menu-overlay {
   background: var(--glass-tint-strong);
   -webkit-backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturate));
   backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturate));
   border-color: var(--glass-border);
   box-shadow: var(--shadow-pop), var(--glass-bevel);
+}
+
+/* The phone's top bar spans the screen: glass, but edged by a hairline
+   underneath rather than floating on a shadow. */
+.mobile-bar.nav-glass {
+  border-width: 0 0 1px;
+  box-shadow: none;
 }
 
 /* Sheets and dialogs take the largest corner in the ramp. Radix ships
@@ -108,7 +122,7 @@
    put them back in the lists above.
 
    The outline rail is a solid panel, not glass — see `.outline-rail` in
-   editor.css. It is a wall of the layout rather than something floating
+   side-panels.css. It is a wall of the layout rather than something floating
    over it, and frosting a panel whose backdrop is the page ground shows
    nothing at all. */
 
@@ -116,68 +130,10 @@
    A scrim frosts what is behind it instead of only darkening it. The blur
    is what separates "a panel opened" from "a panel is drawn on top". */
 .cmdk-overlay,
-.post-detail-overlay,
+.modal-overlay,
 .dialog-scrim {
   -webkit-backdrop-filter: blur(6px) saturate(120%);
   backdrop-filter: blur(6px) saturate(120%);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-   Refraction
-   Layered on top of the blur declared above, and kept in its own
-   `@supports` block on purpose: `backdrop-filter: url(...)` is not
-   universal — Safari has the property but not the function — and a browser
-   that parses `url()` and ignores it would drop the whole declaration, taking the blur with it and leaving a bare translucent rectangle.
-
-   Declaring the plain blur first and only *replacing* it where the
-   reference actually resolves means the fallback is the material minus its
-   lens, not the material minus everything. See `GlassFilters.tsx`.
-   ═══════════════════════════════════════════════════════════════════════ */
-
-@supports (backdrop-filter: url("#lg-panel")) or (-webkit-backdrop-filter: url("#lg-panel")) {
-
-  .liquid-glass,
-  .cmdk-panel,
-  .post-detail-panel,
-  .new-post-dialog,
-  .dialog-glass {
-    -webkit-backdrop-filter: url("#lg-panel") saturate(var(--glass-saturate));
-    backdrop-filter: url("#lg-panel") saturate(var(--glass-saturate));
-  }
-
-  /* The one piece of chrome that always has page content moving underneath
-     it, which is why the bend reads here more clearly than anywhere else. */
-  .nav-glass,
-  .editor-header,
-  .editor-toolbar,
-  .editor-status {
-    -webkit-backdrop-filter: url("#lg-nav") saturate(var(--glass-saturate));
-    backdrop-filter: url("#lg-nav") saturate(var(--glass-saturate));
-  }
-
-  /* Thinner tints, now that the lens carries the material. The tints above
-     are set for glass whose only trick is blur, where the fill has to
-     supply most of the sense of a surface. A refracting pane does not need
-     that, and every point of opacity is backdrop that cannot be seen
-     bending. */
-  .nav-glass {
-    background: color-mix(in srgb, var(--glass-tint-strong) 72%, transparent);
-  }
-
-  .editor-header,
-  .editor-toolbar,
-  .editor-status {
-    background: color-mix(in srgb, var(--glass-tint) 68%, transparent);
-  }
-
-  /* Scrims frost what is behind them; they must not also warp it, or the
-     page appears to melt every time a dialog opens. */
-  .cmdk-overlay,
-  .post-detail-overlay,
-  .dialog-scrim {
-    -webkit-backdrop-filter: blur(6px) saturate(120%);
-    backdrop-filter: blur(6px) saturate(120%);
-  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -198,14 +154,23 @@
 .post-detail-panel,
 .new-post-dialog,
 .dialog-glass,
-.nav-glass)
+.pdf-dialog,
+.nav-glass,
+.editor-header,
+.editor-toolbar,
+.editor-status,
+.modal-overlay,
+.thread-sheet-overlay,
+.surface,
+.settings-sheet,
+.ws-list,
+.thread-list)
 :is(.surface,
 .chip,
 .btn,
 .icon-btn,
 .model-option,
 .pub-row,
-.doc-row,
 .segmented,
 .nav-indicator,
 .input,
@@ -239,14 +204,14 @@
   .nav-glass, .cmdk-panel, .post-detail-panel, .new-post-dialog,
   .dialog-glass, .mobile-menu-overlay,
   .editor-header, .editor-toolbar, .editor-status,
-  .outline-rail, .outline-head, .orail-prompt {
+  .outline-rail {
     background: var(--surface);
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
     border-color: var(--line);
   }
 
-  .cmdk-overlay, .post-detail-overlay, .dialog-scrim {
+  .cmdk-overlay, .modal-overlay, .dialog-scrim {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

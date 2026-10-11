@@ -11,7 +11,7 @@ export interface EditorSearch {
  * `/editor?id=…&type=…`, kept only to forward links that already exist.
  *
  * The editor is a mode of the document route now, not a destination:
- * `/projects/mdx/12201?mode=write`. Two things follow from that, and both are
+ * `/projects/mdx/12201`, which opens writing for anyone who may write. Two things follow from that, and both are
  * the point.
  *
  * A document reached this way used to be loaded through the owner-or-co-author
@@ -38,7 +38,6 @@ export const Route = createFileRoute('/_authenticated/editor')({
       ? redirect({
           to: '/projects/$format/$id',
           params: { format: search.type ?? 'mdx', id: String(search.id) },
-          search: { mode: 'write' as const },
           replace: true,
         })
       : redirect({ to: '/projects', replace: true });

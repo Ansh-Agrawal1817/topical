@@ -76,14 +76,18 @@ table, set the maths, continue from the caret, explain what it says and what it
 misses — or give a free-form instruction. Nothing is applied until you have read
 the result.
 
-### A real preview
+### Write in the rendered page
 
-The preview pane is not a Markdown viewer with a LaTeX shim bolted on. The
-LaTeX path is a parser → preamble → renderer pipeline that handles the
-article-shaped subset people actually write: numbered sections, `\ref` and
-`\cite` resolution, `\newcommand` macros, theorem environments, floats, tables,
-footnotes and bibliographies, with KaTeX for maths and scroll sync against the
-source. Unknown commands still render their argument, so text never silently
+There is no preview pane. The editor renders as you type — headings, emphasis,
+lists, tables, KaTeX maths, `\cite` and `\ref` pills — and shows a construct's
+markup, greyed, only while the caret is on it. A Source switch shows the raw
+text when you want it.
+
+Readers, print and PDF get the full renderer. The LaTeX path is a parser →
+preamble → renderer pipeline that handles the article-shaped subset people
+actually write: numbered sections, `\ref` and `\cite` resolution, `\newcommand`
+macros, theorem environments, floats, tables, footnotes and bibliographies.
+Unknown commands still render their argument, so text never silently
 disappears, and anything it cannot handle is reported as an issue rather than
 dropped.
 

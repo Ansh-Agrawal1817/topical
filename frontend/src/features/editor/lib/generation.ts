@@ -41,6 +41,12 @@ export interface SectionRequest {
   urls: string[];
   /** What the writer asked for beyond the title — a length, a stance, an angle. */
   instruction?: string;
+  /** Prose already written, for the section to match in voice and notation. */
+  styleSample?: string;
+  /** The text just before the section, so it continues rather than restarts. */
+  leadIn?: string;
+  /** LaTeX labels already in the document, to reference and not redefine. */
+  labels?: string[];
 }
 
 /** Generate one section, cleaned of any frontmatter the model added. */
@@ -72,6 +78,11 @@ export async function generateSection(req: SectionRequest): Promise<string> {
     ancestors: req.ancestors,
     section_number: req.sectionNumber,
     level: req.section.level,
+    // A sample of what is already written, so a generated section reads as
+    // the same author's rather than in the model's default register.
+    style_sample: req.styleSample,
+    lead_in: req.leadIn,
+    labels: req.labels,
   });
 
   return stripFrontmatter(raw);

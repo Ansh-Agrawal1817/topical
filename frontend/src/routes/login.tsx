@@ -55,7 +55,7 @@ function LoginPage() {
           headline="Your topics are where you left them."
           body="Every outline, draft and published piece, exactly as it was — and the field is ready for the next one."
           points={[
-            { icon: PenLine, text: 'Markdown and LaTeX in one editor, with a live preview' },
+            { icon: PenLine, text: 'Markdown and LaTeX, written live — the page reads as it will look' },
             { icon: Sparkles, text: 'An outline rail that drafts and refines structure with you' },
             { icon: Share2, text: 'Publish to the community when a piece is ready — not before' },
           ]}

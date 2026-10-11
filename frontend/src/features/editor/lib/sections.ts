@@ -50,15 +50,26 @@ export interface SectionSpan {
   end: number;
 }
 
-/** Locate a section by its heading text. Case- and space-insensitive. */
+/**
+ * Locate a section by its heading text. Case- and space-insensitive.
+ *
+ * With `near`, the match closest to that offset wins: two sections may share
+ * a name, and a job that set out to write the second must not land in the
+ * first. Offsets alone are not enough — the document moves while a request is
+ * out — so the title finds the candidates and the offset picks among them.
+ */
 export function findSection(
   content: string,
   format: DocFormat,
   title: string,
+  near?: number,
 ): SectionSpan | null {
   const nodes = buildOutline(content, format);
   const wanted = title.trim().toLowerCase();
-  const node = nodes.find(candidate => candidate.label.trim().toLowerCase() === wanted);
+  const matches = nodes.filter(candidate => candidate.label.trim().toLowerCase() === wanted);
+  const node = near === undefined
+    ? matches[0]
+    : matches.sort((a, b) => Math.abs(a.offset - near) - Math.abs(b.offset - near))[0];
   if (!node) return null;
 
   const newline = content.indexOf('\n', node.offset);
@@ -90,19 +101,61 @@ export function placeSection(
   title: string,
   text: string,
   replace: boolean,
+  near?: number,
 ): EditResult {
-  const span = findSection(content, format, title);
+  const span = findSection(content, format, title, near);
 
   // Nothing to file it under: the section keeps its own heading and lands at
   // the end of the document.
   if (!span) return insertBlock(content, text.trim(), content.length, '\n\n');
 
   // The heading is already there, so the copy the model wrote is a duplicate.
-  const body = stripLeadingHeading(text, title, format).trim();
+  // What is left is fitted under the heading as the markup actually spells
+  // it, so the section stays one atomic unit of the outline.
+  const shape = headingShape(content, format, span.node.offset);
+  const body = fitUnderHeading(stripLeadingHeading(text, title, format).trim(), format, shape.level, shape.hasChildren);
   if (!replace) return insertBlock(content, body, span.bodyEnd, '\n\n');
 
   const cleared = content.slice(0, span.headingEnd) + '\n' + content.slice(span.bodyEnd);
   return insertBlock(cleared, body, span.headingEnd + 1, '\n\n');
+}
+
+/** A heading's depth as its markup spells it, and whether sub-sections sit under it. */
+export function headingShape(content: string, format: DocFormat, offset: number): { level: number; hasChildren: boolean } {
+  const headings = rawHeadings(content, format);
+  const i = indexAtOffset(headings, offset);
+  if (i < 0) return { level: 1, hasChildren: false };
+  const next = headings[i + 1];
+  return { level: headings[i].level, hasChildren: !!next && next.level > headings[i].level };
+}
+
+/**
+ * Make generated text fit under a heading at `level` without changing the
+ * outline around it.
+ *
+ * A heading in the text at `level` or above would split this section or close
+ * its parent, so it is demoted to `level + 1` (or set as bold where the format
+ * has no deeper level). Where the heading already has sub-sections, the text
+ * is its introduction only and stops at its first heading of any kind — the
+ * children are written in their own passes, and must not appear twice.
+ *
+ * The AI service applies the same rules; this is the editor refusing to
+ * depend on that.
+ */
+export function fitUnderHeading(text: string, format: DocFormat, level: number, hasChildren: boolean): string {
+  const heads = rawHeadings(text, format);
+  if (!heads.length) return text;
+  const lines = text.split('\n');
+  if (hasChildren) return lines.slice(0, heads[0].line).join('\n').trimEnd();
+  const maxLevel = format === 'latex' ? 5 : MAX_PLAN_LEVEL;
+  for (const head of heads) {
+    if (head.level > level) continue;
+    const depth = level + 1;
+    lines[head.line] = depth > maxLevel
+      ? (format === 'latex' ? `\\textbf{${head.title}}` : `**${head.title}**`)
+      : headingMarkup(head.title, depth, format);
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -114,35 +167,26 @@ export function placeSection(
 export function dropSection(
   content: string,
   format: DocFormat,
-  title: string,
+  offset: number,
 ): EditResult | null {
-  const span = findSection(content, format, title);
+  // By the heading's offset, like every other row operation: by title, the
+  // delete on the second of two "Overview" rows removed the first one.
+  const node = buildOutline(content, format).find(candidate => candidate.offset === offset);
+  const span = node ? findSection(content, format, node.label, node.offset) : null;
   if (!span) return null;
 
-  const next = (content.slice(0, span.node.offset) + content.slice(span.end))
-    // Closing the gap leaves the blank lines from both sides stacked up.
-    .replace(/\n{3,}/g, '\n\n')
-    .trimEnd();
-  const caret = Math.min(span.node.offset, next.length);
+  // Closing the gap leaves the blank lines from both sides stacked up, so the
+  // seam is tidied — and only the seam. This used to collapse every run of
+  // blank lines in the whole document, reaching into code blocks and verbatim
+  // that had nothing to do with the section being removed.
+  const before = content.slice(0, span.node.offset).replace(/\n+$/, '');
+  const after = content.slice(span.end).replace(/^\n+/, '');
+  const seam = before && after ? '\n\n' : '';
+  const next = (before + seam + after).trimEnd();
+  const caret = Math.min(before.length + seam.length, next.length);
   return { content: next, start: caret, end: caret };
 }
 
-
-
-// ---------------------------------------------------------------------------
-// Structural edits — the outline rail's operations, expressed on the document
-// ---------------------------------------------------------------------------
-// There is no separate copy of the outline to keep in step: the rail renders
-// the document's headings, and reshaping it rewrites those headings. Sync is
-// not maintained, it is structural.
-
-/**
- * Rewrite a heading's text, leaving everything else about the line alone.
- *
- * The title is spliced into its own span rather than the line being rebuilt
- * from a level, so `\\section*`, `\\part`, a closing `###` and the line's own
- * indentation all survive a rename instead of being silently normalised away.
- */
 export function renameSection(
   content: string, format: DocFormat, offset: number, next: string,
 ): EditResult | null {

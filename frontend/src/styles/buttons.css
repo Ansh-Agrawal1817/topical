@@ -37,7 +37,8 @@
   justify-content: center;
   gap: 0.5rem;
 
-  border-radius: var(--radius);
+  /* Capsules, as Liquid Glass draws every button. */
+  border-radius: var(--radius-pill);
   border: 1px solid transparent;
 
   font-family: var(--font-sans);
@@ -48,8 +49,6 @@
   flex-shrink: 0;
   cursor: pointer;
 
-  /* No background-image at all, so nothing here can be washed out by a
-     gradient the way the previous set was. */
   background-image: none;
 
   transition: background-color var(--dur-fast) var(--ease-out),
@@ -65,18 +64,20 @@
    the work. The inset hairline is the same lit top edge the glass chrome
    carries, so the two read as one light source. */
 .btn--primary {
+  /* Flat terracotta, lifted a step off the page by its shadow — the one
+     filled block on a screen. */
   background-color: var(--accent-400);
   border-color: var(--accent-400);
   color: var(--accent-ink);
   box-shadow: var(--highlight-inset),
-              var(--shadow-sm);
+              0 2px 6px -2px var(--accent-glow);
 }
 .btn--primary:hover:not(:disabled) {
   background-color: var(--accent-500);
   border-color: var(--accent-500);
   color: var(--accent-ink);
   box-shadow: var(--highlight-inset),
-              0 4px 14px -6px var(--accent-glow);
+              0 6px 16px -6px var(--accent-glow);
 }
 
 /* ── Secondary ──
@@ -84,10 +85,13 @@
    card, at control size. `dashed` is the same tier saying "add one here". */
 .btn--secondary,
 .btn--dashed {
-  background-color: var(--surface);
-  border-color: var(--line);
+  /* Frosted: a lighter, blurred fill on whatever it sits on. */
+  background-color: var(--glass-control);
+  border-color: var(--material-line);
   color: var(--ink-2);
   box-shadow: var(--shadow-xs);
+  -webkit-backdrop-filter: blur(var(--glass-blur-sm)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur-sm)) saturate(var(--glass-saturate));
 }
 .btn--dashed {
   border-style: dashed;
@@ -95,7 +99,7 @@
 }
 .btn--secondary:hover:not(:disabled),
 .btn--dashed:hover:not(:disabled) {
-  background-color: var(--surface-2);
+  background-color: var(--glass-control-hover);
   border-color: var(--line-strong);
   color: var(--ink);
 }
@@ -104,7 +108,7 @@
 /* ── Ghost ──
    No chrome at rest; the affordance is the hover fill. */
 .btn--ghost {
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   background-color: transparent;
   box-shadow: none;
   color: var(--ink-muted);
@@ -176,7 +180,7 @@
 .btn--md   { height: var(--control-h); min-height: var(--control-h); padding: 0 14px; font-size: 12px; }
 .btn--lg   { height: var(--control-h); min-height: var(--control-h); padding: 0 16px; font-size: var(--text-sm); }
 .btn--xl   { min-height: 2.75rem; padding: 0 1.1rem; font-size: var(--text-base); }
-.btn--hero { padding: 0.7rem 1.35rem; font-size: var(--text-md); border-radius: var(--radius-md); }
+.btn--hero { padding: 0.7rem 1.35rem; font-size: var(--text-md); }
 .btn--full { width: 100%; }
 .btn--pill { border-radius: var(--radius-pill); }
 .btn--tight { padding-left: 10px; padding-right: 10px; }
@@ -199,7 +203,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   border: 1px solid transparent;
   background-color: transparent;
   background-image: none;
@@ -301,7 +305,7 @@
   width: 100%;
   min-width: 0;
   font-family: var(--font-sans);
-  background: var(--surface-2);
+  background: var(--glass-control);
   border: 1px solid var(--control-line);
   box-shadow: inset 0 1px 2px rgb(var(--shadow-rgb) / 0.05);
   transition: border-color var(--dur-fast) var(--ease-out),
@@ -312,7 +316,7 @@
 /* The border carries the 3:1 edge a focus indicator needs; the halo is the glow. */
 .input--well:focus {
   outline: none;
-  background: var(--surface);
+  background: var(--glass-control-hover);
   border-color: var(--focus-border);
   box-shadow: var(--focus-ring),
               inset 0 1px 2px rgb(var(--shadow-rgb) / 0.04);
@@ -424,10 +428,10 @@
 .segmented { display: inline-flex; gap: 3px; }
 .segmented--tray {
   padding: 3px;
-  background-color: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  box-shadow: inset 0 1px 2px rgb(var(--shadow-rgb) / 0.04);
+  background-color: var(--ink-a04);
+  border: 1px solid var(--material-line);
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 1px 2px rgb(var(--shadow-rgb) / 0.06);
 }
 .segmented--pills { gap: 6px; }
 .segmented--fill { display: flex; }
@@ -439,9 +443,8 @@
   justify-content: center;
   gap: 6px;
   white-space: nowrap;
-  /* The tray's radius less its padding (12px − 3px). Any other number and
-     the chosen item's corners cut across the tray's curve. */
-  border-radius: var(--radius);
+  /* Concentric with the capsule tray around it. */
+  border-radius: var(--radius-pill);
   border: 1px solid transparent;
   background-color: transparent;
   color: var(--ink-muted);
@@ -465,11 +468,12 @@
   background-color: var(--ink-a04);
 }
 .segmented--tray .segmented-item[data-active='true'] {
-  background-color: var(--surface);
-  border-color: var(--line);
+  /* The chosen item: a solid chip raised out of the frosted tray. */
+  background-color: var(--glass-lens);
+  border-color: var(--material-line);
   color: var(--ink);
   font-weight: 600;
-  box-shadow: var(--shadow-xs);
+  box-shadow: var(--rim), 0 2px 6px -2px rgb(var(--shadow-rgb) / 0.18);
 }
 /* The accent appears as a mark, not as a fill — enough to say "this one"
    without spending the primary-action colour on a tab. */
@@ -494,9 +498,9 @@
    will land" can never be confused. */
 .menu-panel {
   background: var(--surface);
-  border: 1px solid var(--line);
+  border: 1px solid var(--material-line);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-pop);
+  box-shadow: var(--rim), var(--shadow-pop);
 }
 .menu-panel--sm { padding: 4px; }
 .menu-panel--md { padding: 6px; }
@@ -523,7 +527,7 @@
   width: 100%;
   min-height: 0;
   padding: 7px 9px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   font-size: 12.5px;
   color: var(--ink-2);
   text-align: left;

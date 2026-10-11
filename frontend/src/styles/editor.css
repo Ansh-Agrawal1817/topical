@@ -107,6 +107,11 @@ h1.editor-title--static:hover { background: transparent; }
   margin-left: -6px;
 }
 .editor-peer--more { background: var(--ink-a08); color: var(--ink-2); box-shadow: none; }
+/* The save button holds one width across Save / Saving / Saved, so autosave
+   landing every few seconds does not shunt the whole bar sideways. */
+.editor-save { min-width: 6.25rem; justify-content: center; }
+.editor-save[data-state='error'] { color: var(--status-danger); border-color: rgb(var(--danger-rgb) / 0.4); }
+.editor-save[data-state='saved'] svg { color: var(--status-success); }
 /* One dismiss boundary around every header popover. */
 .editor-menus { display: flex; align-items: center; gap: 2px; }
 
@@ -124,7 +129,17 @@ h1.editor-title--static:hover { background: transparent; }
    more place it applies. A menu is a surface you read, not chrome floating
    over moving content. */
 /* Placement under the trigger; the panel is a MenuPanel. */
-.editor-menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: var(--z-menu); min-width: 214px; }
+.editor-menu {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: var(--z-menu); min-width: 214px;
+  /* Never taller than the room under the bar: the compact menu holds the
+     export actions and the document style too, and on a phone it ran off
+     the bottom of the screen with no way to reach its last rows. */
+  max-height: calc(100dvh - 72px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.editor-menu--compact { width: min(300px, calc(100vw - 16px)); }
+.editor-menu-section { margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--line-soft); }
 .editor-menu-spacer { width: 14px; }
 .editor-menu-row { display: flex; align-items: center; gap: 8px; padding: 4px 9px 8px; }
 .editor-menu-value {
@@ -140,16 +155,25 @@ h1.editor-title--static:hover { background: transparent; }
   display: flex;
   align-items: center;
   gap: 2px;
-  flex-wrap: wrap;
+  /* One row, always. Wrapping put the AI button and the shortcut key on a
+     second row at every laptop width (1024–1200px), doubling the chrome over
+     the page; a bar that scrolls sideways when it truly cannot fit is the
+     lesser cost, and below the hint's breakpoint it fits. */
+  flex-wrap: nowrap;
   padding: 5px 12px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--line-soft);
   background: var(--ink-a02);
   /* Narrow windows scroll the bar instead of squeezing 18 targets below
-     their minimum size. `-thin` because a scrollbar inside 44px of chrome is
+     their minimum size. No visible scrollbar: inside 44px of chrome it is
      furniture, not a control. */
   overflow-x: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+.editor-toolbar::-webkit-scrollbar { display: none; }
+/* The hint is a sentence about a key — the first thing to give up its room. */
+@media (max-width: 1279px) {
+  .toolbar-hint { display: none; }
 }
 /* Groups keep their own buttons together when the bar has to wrap or scroll, so a heading control never ends up orphaned on the far side of a divider
    from its siblings. */
@@ -176,612 +200,34 @@ h1.editor-title--static:hover { background: transparent; }
 }
 /* ── Panes ── */
 .editor-main { display: flex; flex: 1; min-height: 0; overflow: hidden; }
-.editor-pane { position: relative; height: 100%; display: flex; flex-direction: column; min-width: 0; }
+.editor-pane { position: relative; flex: 1; height: 100%; display: flex; flex-direction: column; min-width: 0; }
 /* The query container the rendered sheet measures itself against. Without it
    the sheet's `cqi` units resolve against whatever ancestor happens to be a
    container — or the small-viewport fallback — and the measure stops tracking
-   the divider, which is the whole point of using them. */
+   the pane. */
 .editor-preview {
+  flex: 1;
   height: 100%;
   min-width: 0;
   overflow: hidden;
   display: flex;
   container-type: inline-size;
 }
-
-.editor-divider {
-  width: 5px;
-  flex-shrink: 0;
-  cursor: col-resize;
-  background: linear-gradient(to right, transparent 40%, var(--ink-a06) 40%, var(--ink-a06) 60%, transparent 60%);
-  transition: background var(--dur-fast) var(--ease-out);
-  z-index: var(--z-handle);
-}
-.editor-divider:hover, .editor-divider:active {
-  background: linear-gradient(to right, transparent 33%, var(--accent-line) 33%, var(--accent-line) 67%, transparent 67%);
-}
-
-/* ═══ The editing surface ═══
-   A textarea over a highlighted mirror. Both must agree on every metric that
-   affects where a glyph lands, so they share one class. */
-.code-surface {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  --code-size: 16px;
-  --code-pad-x: 1.75rem;
-  --code-gutter: 0rem;
-}
-.code-surface[data-gutter='true'] { --code-gutter: 2.75rem; }
-
-.code-text {
-  position: absolute;
-  inset: 0;
-  /* Both layers reserve the scrollbar, or the textarea wraps a few characters
-     earlier than the mirror and the two drift apart line by line. */
-  scrollbar-gutter: stable;
-  margin: 0;
-  border: 0;
-  font-family: var(--font-mono);
-  font-size: var(--code-size);
-  line-height: 1.75;
-  letter-spacing: 0.005em;
-  tab-size: 2;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  /* Room to type past the last line without the caret sitting on the bottom
-     edge — a fixed measure, not 40vh, which on a tall screen was half a
-     screenful of nothing to scroll through. */
-  padding: 1.75rem var(--code-pad-x) 12rem calc(var(--code-pad-x) + var(--code-gutter));
-  overflow: auto;
-  overscroll-behavior: contain;
-}
-
-.code-mirror {
-  z-index: 0;
-  color: var(--ink-2);
-  pointer-events: none;
-  counter-reset: code-line;
-  overflow: hidden;
-}
-
-.code-input {
-  z-index: 1;
-  background: transparent;
-  color: transparent;
-  caret-color: var(--accent-400);
-  resize: none;
-  outline: none;
-}
-.code-input::placeholder { color: var(--ink-ghost); }
-.code-input::selection { background: rgb(var(--accent-rgb) / 0.22); }
-
-/* One element per source line: gutter numbers hang in the padding, and focus
-   mode has something to dim. */
-.cl {
-  counter-increment: code-line;
-  position: relative;
-  min-height: calc(var(--code-size) * 1.75);
-  transition: opacity var(--dur-base) var(--ease-out);
-}
-/* The number is its own box, matched to the height of one line so it sits on
-   the same optical row as the text. Inheriting the line-height would centre it
-   against its own smaller font instead, which reads as a constant offset. */
-.code-surface[data-gutter='true'] .cl::before {
-  content: counter(code-line);
-  position: absolute;
-  left: calc(-1 * var(--code-gutter));
+/* The typeset document while writing, only for the length of a print or a
+   PDF export: laid out at a page's width, off-screen. */
+.editor-print-source {
+  position: fixed;
   top: 0;
-  width: 2rem;
-  height: calc(var(--code-size) * 1.75);
-  line-height: calc(var(--code-size) * 1.75);
-  text-align: right;
-  font-size: 0.72em;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-ghost);
-  user-select: none;
+  left: -10000px;
+  width: 820px;
+  height: auto;
+  pointer-events: none;
 }
-.code-surface[data-focus='true'] .cl { opacity: 0.32; }
-.code-surface[data-focus='true'] .cl-active { opacity: 1; }
-.code-surface[data-focus='true'] .cl-active::before { color: var(--accent-500); }
 
-/* ── Where the caret just landed ──
-   A caret arriving from somewhere else — a click in the preview, an outline
-   row, a search hit — is one hairline in a wall of monospace, and it is not
-   blinking yet if focus was elsewhere a moment ago. The line it landed on
-   lights up once and fades, which tells the eye where to go without leaving
-   anything behind to be mistaken for a selection.
-
-   Animated on the line's own `background`, the same surface `.cl-section`
-   below paints on, rather than through a pseudo-element: `.cl` establishes no
-   stacking context, so a `z-index: -1` layer inside it is painted behind the
-   mirror's background and never seen at all. `.cl` is a block, so its
-   background already spans the full width of the row. */
-.cl-flash {
-  animation: cl-flash-out var(--dur-flash) var(--ease-out) forwards;
-  border-radius: var(--radius-xs);
-}
+/* The flash a line gets when the caret is sent to it (live.css). */
 @keyframes cl-flash-out {
   from { background-color: rgb(var(--accent-rgb) / 0.30); }
   to { background-color: transparent; }
-}
-/* Reduced motion keeps the signal and drops none of the meaning — a fade is
-   what the policy preserves; it just resolves faster. */
-@media (prefers-reduced-motion: reduce) {
-  .cl-flash { animation-duration: calc(var(--dur-flash) / 2); }
-}
-
-/* ── The section the outline rail is pointing at ──
-   Painted on the mirror, which sits *under* the transparent textarea, so it
-   reads as a highlight on the text rather than as a box drawn over it — and
-   the caret, the selection and native find all keep working on top of it.
-
-   Deliberately not a text selection. Selecting a whole section leaves the
-   writer one keystroke from replacing it, and pops the inline-AI chip over
-   the exact text they opened the row to look at. */
-.cl-section {
-  background: rgb(var(--accent-rgb) / 0.05);
-  box-shadow: inset 2px 0 0 rgb(var(--accent-rgb) / 0.45);
-}
-.cl-section-top { border-top-left-radius: var(--radius-xs); border-top-right-radius: var(--radius-xs); }
-.cl-section-end { border-bottom-left-radius: var(--radius-xs); border-bottom-right-radius: var(--radius-xs); }
-.code-surface[data-gutter='true'] .cl-section::before { color: var(--accent-500); }
-.code-surface[data-focus='true'] .cl-section { opacity: 1; }
-
-/* ── Tokens ── */
-.tok-head { color: var(--accent-500); font-weight: 700; }
-.tok-strong { color: var(--ink); font-weight: 700; }
-.tok-em { color: var(--ink-2); font-style: italic; }
-.tok-del { color: var(--ink-faint); text-decoration: line-through; }
-.tok-code { color: var(--syn-code); }
-.tok-math { color: var(--latex-500); }
-.tok-link { color: var(--syn-link); }
-.tok-url { color: rgb(var(--accent-rgb) / 0.45); }
-.tok-quote { color: var(--ink-muted); font-style: italic; }
-.tok-marker { color: var(--accent-500); }
-.tok-rule { color: var(--ink-ghost); }
-.tok-tag { color: var(--syn-tag); }
-.tok-cmd { color: var(--syn-cmd); }
-.tok-env { color: var(--latex-500); font-weight: 600; }
-.tok-comment { color: var(--ink-ghost); font-style: italic; }
-.tok-punct { color: var(--ink-faint); }
-.tok-find {
-  background: rgb(var(--accent-rgb) / 0.18);
-  border-radius: 3px;
-  box-shadow: 0 0 0 1px rgb(var(--accent-rgb) / 0.3);
-}
-.tok-find-active {
-  background: rgb(var(--accent-rgb) / 0.4);
-  border-radius: 3px;
-  box-shadow: 0 0 0 1px rgb(var(--accent-rgb) / 0.7);
-}
-
-/* ── Outline rail ──
-   The document's structure and everything that acts on it: the writer edits
-   it by hand, the model proposes changes to it, and each row is the handle
-   for writing that section. Width is dragged, so it can be a thin navigator
-   or a wide working outline. */
-/* ── The rail ──
-   Solid, deliberately. A sidebar is a panel the document sits beside, not
-   chrome floating over it: frosting a tall column against scrolling text
-   makes the text smear the whole height of the screen every time you move, which reads as noise rather than as depth.
-
-   The glass in here is carried by a few *controls* instead — the two AI
-   buttons, the generate button, and the active row. Mostly solid, with the
-   material appearing where something is actionable. */
-.outline-rail {
-  position: relative;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid var(--line);
-  background: var(--bg-subtle);
-  overflow: hidden;
-}
-.outline-head {
-  display: flex; align-items: center; gap: 7px;
-  padding: 12px 12px 9px;
-  font-size: 10px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.1em;
-  color: var(--ink-faint);
-  flex-shrink: 0;
-}
-.outline-count {
-  font-family: var(--font-mono);
-  padding: 1px 6px; border-radius: var(--radius-pill);
-  background: var(--ink-a04);
-  color: var(--ink-faint);
-  letter-spacing: 0;
-}
-
-/* ── Coverage ──
-   How much of the outline is written, stated once. The rail used to say this
-   with a tick on every written row, which is the same fact repeated as many
-   times as there are sections and readable as none of them. */
-/* Placement of the coverage Progress under the rail head. */
-.outline-meter { margin: 0 12px 9px; flex-shrink: 0; }
-/* The drag handle sits over the border, not beside it, so the rail loses no
-   width to something you only touch occasionally. */
-.outline-resize {
-  position: absolute;
-  top: 0; right: -2px; bottom: 0;
-  width: 5px;
-  cursor: col-resize;
-  z-index: var(--z-handle);
-}
-.outline-resize:hover { background: var(--accent-line); }
-
-/* One button, so it takes the width. There were two — "AI outline" and
-   "Refine" — which asked the same question and differed only in whether a
-   structure already existed; that is a distinction the rail can make for
-   itself from the outline it is already rendering. */
-.outline-actions {
-  display: flex;
-  padding: 0 10px 9px;
-  flex-shrink: 0;
-}
-/* ── Inline prompts ── */
-.orail-prompt {
-  display: flex; flex-direction: column; gap: 6px;
-  margin: 0 10px 10px;
-  padding: 9px;
-  border-radius: var(--radius);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  flex-shrink: 0;
-}
-.orail-prompt-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.orail-foot-link { align-self: center; }
-
-/* Openers, not presets: clicking one fills the box and leaves it editable, so
-   the four common instructions cost a click and everything else still costs a
-   sentence. Pills, because they describe rather than act — the ramp is for
-   controls. */
-.orail-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.orail-note { font-size: 10px; line-height: 1.5; color: var(--ink-ghost); }
-
-/* ── Proposed restructure ──
-   Shown next to the reasoning that produced it. A restructure that lands
-   silently is one nobody can check, so nothing is applied until this is. */
-.orail-proposal {
-  margin: 0 10px 10px;
-  border-radius: var(--radius);
-  border: 1px solid var(--accent-line);
-  background: var(--surface);
-  overflow: hidden;
-  flex-shrink: 0;
-  max-height: 46vh;
-  display: flex; flex-direction: column;
-}
-.orail-summary {
-  padding: 8px 10px;
-  font-size: 11.5px; line-height: 1.5;
-  color: var(--ink-2);
-  border-bottom: 1px solid var(--line-soft);
-}
-.orail-preview {
-  padding: 7px 10px;
-  overflow-y: auto;
-  border-bottom: 1px solid var(--line-soft);
-}
-.orail-preview-row {
-  font-size: 11.5px; line-height: 1.7;
-  color: var(--ink-muted);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.orail-changes { overflow-y: auto; padding: 4px 0; }
-.orail-change {
-  display: flex; gap: 7px;
-  padding: 6px 10px;
-}
-/* Placement beside the change it labels; the badge itself is a Chip. */
-.orail-kind { flex-shrink: 0; align-self: flex-start; margin-top: 1px; }
-.orail-change-title { font-size: 11.5px; font-weight: 600; color: var(--ink); }
-.orail-change-reason { font-size: 10.5px; line-height: 1.45; color: var(--ink-muted); }
-.orail-proposal-actions {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 10px;
-  border-top: 1px solid var(--line-soft);
-}
-.orail-urls { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; }
-
-/* ── Rows ── */
-.outline-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 7px 8px; }
-
-/* ── Rows ──
-   Indentation alone was carrying the whole hierarchy, which at 14px a level
-   is not enough to read as a tree — three levels looked like three slightly
-   ragged lines. Two things fix it: a guide rule showing what a row hangs
-   from, and a type scale that makes depth legible without measuring.
-   ═══════════════════════════════════════════════════════════════════════ */
-.orow {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 5px;
-  /* The indent, derived from the level the row published. */
-  padding-left: calc(6px + (var(--orow-level, 1) - 1) * 14px);
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  color: var(--ink-muted);
-  transition: background-color var(--dur-fast) linear,
-              color var(--dur-fast) linear;
-}
-
-/* ── Depth ──
-   Indentation and the type scale, and nothing else. Two attempts at guide
-   rules have now been removed from this file: a `background-image` hairline
-   that was clipped to each row (so it drew disconnected dashes at the
-   immediate parent's indent and nothing for the grandparents), and a set of
-   real full-height elements that joined up correctly and still read as
-   decoration — in a 300px column, a rule per level is furniture standing
-   where the section titles should be. */
-
-/* Depth as weight and size, not only as position. */
-.orow[data-level='1'] .orow-name { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
-.orow[data-level='2'] .orow-name { font-size: 12px; font-weight: 500; }
-.orow[data-level='3'] .orow-name,
-.orow[data-level='4'] .orow-name { font-size: 11.5px; font-weight: 400; }
-
-.orow:hover { background-color: var(--ink-a04); }
-
-/* ── The active row ──
-   A hairline down the leading edge and the faintest wash. It used to be a
-   2px accent bar, a full-strength `--accent-soft` fill, accent-coloured text
-   *and* a jump to weight 600 — four signals for one fact, on a row that is
-   already the one under the caret. Marking where you are should be the
-   quietest thing in the list, not the loudest: the title keeps its own colour
-   and weight so the type scale still reads as depth. */
-.orow[data-active='true'] {
-  background-color: rgb(var(--accent-rgb) / 0.07);
-}
-
-/* ── No leading edges ──
-   Every state on this row is carried by fill and by type, never by a bar down
-   the left. An inset edge follows the row's border radius, so it renders as a
-   rounded bracket rather than a straight rule — one of them reads as a stray
-   parenthesis, and a path three deep reads as a stack of them.
-
-   ── The path down to the active row ──
-   The sections the active one is nested inside are labelled, not lit: `P1` is
-   its parent, `P2` the grandparent. A label survives what a fill cannot —
-   ancestors are *not* adjacent to the active row, since the rows between them
-   are its siblings and cousins, so anything that tints a row implies a
-   contiguous block that does not exist and stripes the rail. */
-.orow[data-status='failed'] .orow-name { color: var(--status-danger); }
-
-/* ── Dragging ──
-   The grip is held open by its own width so revealing it on hover doesn't
-   shunt the title sideways. The drop line sits in the gap between rows, which
-   is the only place a "goes here" mark can mean one thing. */
-.orow-grip {
-  display: flex; align-items: center; justify-content: center;
-  width: 11px;
-  flex-shrink: 0;
-  color: var(--ink-ghost);
-  opacity: 0;
-  cursor: grab;
-  transition: opacity var(--dur-fast) linear;
-}
-.orow:hover .orow-grip { opacity: 1; }
-.orow-grip:active { cursor: grabbing; }
-
-.orow[data-dragging='true'] { opacity: 0.45; }
-
-.orow[data-drop='top']::before,
-.orow[data-drop='bottom']::after {
-  content: '';
-  position: absolute;
-  left: 4px; right: 4px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--accent-400);
-}
-.orow[data-drop='top']::before { top: -1px; }
-.orow[data-drop='bottom']::after { bottom: -1px; }
-
-/* ── Per-row status ──
-   This slot held a green tick in a ring on every section that had prose behind
-   it. On a finished document that is a column of identical marks — a checklist
-   nobody is ticking off, restating what the meter at the top of the rail
-   already says, and repeating it once per row. What is actually worth knowing
-   per row is *how much* is there, so the slot carries the word count, and only
-   a run in progress or a failure takes it over. */
-.orow-meta {
-  display: flex; align-items: center; justify-content: flex-end;
-  min-width: 26px;
-  flex-shrink: 0;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-faint);
-  transition: opacity var(--dur-fast) linear;
-}
-.orow-meta[data-kind='generating'] { color: var(--accent-500); }
-.orow-meta[data-kind='ancestor'] { color: var(--accent-500); }
-.orow-parent {
-  font-family: var(--font-mono);
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  line-height: 1;
-  padding: 2px 4px;
-  border-radius: var(--radius-xs);
-  color: var(--accent-600);
-  background: rgb(var(--accent-rgb) / 0.12);
-}
-/* Failed reads as "still to do, and something went wrong" — the row stays
-   clickable because clicking ✨ is the retry. */
-.orow-meta[data-kind='failed'] { color: var(--status-danger); }
-/* Every kind, not just the quiet two. `generating` and `failed` used to be
-   held visible here on the grounds that they need chasing, but the tool tray
-   covers this slot the moment the row is hovered — so they were not actually
-   readable, only overlapping. Failure is now carried by the row itself (see
-   `[data-status='failed']` above), which no tray can sit on top of. */
-.orow:hover .orow-meta { opacity: 0; }
-
-/* A section with nothing behind it yet is a promise, and reads like one. */
-.orow[data-written='false'] .orow-name { color: var(--ink-faint); }
-.orow[data-written='true'] .orow-name { color: var(--ink); }
-
-.orow-name {
-  flex: 1;
-  /* The base layer gives every button a 2.5rem tap target. That is right for
-     a lone button and wrong for a list row, which would triple in height. */
-  min-width: 0;
-  min-height: 0;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 2px 0;
-  color: inherit;
-  transition: color var(--dur-fast) linear;
-}
-.orow-name:hover:not(:disabled) { color: var(--accent-500); }
-.orow-name[data-empty='true'] { color: var(--ink-ghost); font-style: italic; }
-.orow-name:disabled { cursor: default; }
-
-.orow-input {
-  flex: 1;
-  min-width: 0;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  font-family: inherit;
-  color: var(--ink);
-  background: var(--surface);
-  border: 1px solid var(--accent-line);
-  outline: none;
-}
-.orow-input::placeholder { color: var(--ink-ghost); }
-
-/* The rail stays hidden until the row is wanted — seven controls on every row
-   at rest turns the outline into a toolbar you have to read past. */
-/* ── Row tools ──
-   Taken out of flow on purpose. In flow, six 18px buttons plus their gaps
-   reserved 113px of every row *while invisible* — measured against a 285px
-   row, which left the section title 120px and truncated nearly every one of
-   them to "Retrieval-Augmen…" in a rail with 165px of blank space beside it.
-   Absolute keeps the title's width honest: it now gets the whole row, and
-   the tools sit over its tail only while they are actually shown.
-
-   `pointer-events: none` while hidden matters as much as the width did.
-   `opacity: 0` still takes clicks, so the right-hand third of every row was
-   firing indent, outdent or delete on what looked like a click on the title. */
-.orow-tools {
-  position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  opacity: 0;
-  pointer-events: none;
-  /* Fades the title out under the icons instead of letting the two overlap.
-     The stop colour has to match whatever the row is painted, which is why
-     it is repeated for the hover and active states below. */
-  padding-left: 16px;
-  background: linear-gradient(90deg, transparent 0, var(--bg-subtle) 16px);
-  transition: opacity var(--dur-fast) linear;
-}
-.orow:hover .orow-tools,
-.orow:focus-within .orow-tools { opacity: 1; pointer-events: auto; }
-
-/* The fade has to end in the row's own colour, or a pale band appears where
-   the gradient lands on a differently-tinted row.
-
-   Both stops mix a *percentage of an opaque colour* into the ground rather
-   than mixing the translucent token itself. `color-mix` averages alpha along
-   with the channels, so `color-mix(in srgb, var(--ink-a04), var(--bg-subtle))`
-   returned alpha 0.53 — a backdrop that was half see-through in the only
-   state where it is ever shown. The row's own status mark sat underneath it
-   and printed straight through the tool icons: a failed section's warning
-   triangle appeared on top of the delete button. Mixing `var(--ink)` at the
-   token's own percentage gives the identical colour at alpha 1. */
-.orow:hover .orow-tools {
-  background: linear-gradient(90deg, transparent 0,
-    color-mix(in srgb, var(--ink) var(--ink-a04-pct), var(--bg-subtle)) 16px);
-}
-.orow[data-active='true'] .orow-tools {
-  background: linear-gradient(90deg, transparent 0,
-    color-mix(in srgb, var(--accent-500) 5.5%, var(--bg-subtle)) 16px);
-}
-
-/* The foot is now one thing — generate — plus the setting that configures
-   it. It used to carry a second "add section" and three lines of permanent
-   help as well, which is what made the bottom of the rail heavier than the
-   list above it. */
-.outline-foot {
-  flex-shrink: 0;
-  display: flex; flex-direction: column; gap: 8px;
-  padding: 10px 10px 12px;
-  border-top: 1px solid var(--line-soft);
-}
-
-.gen-run { display: flex; flex-direction: column; gap: 7px; }
-/* Which section, not only how many: a bar reading 3/7 through a four-minute
-   run says nothing about what is landing in the document. */
-.gen-now {
-  font-size: 10.5px;
-  line-height: 1.4;
-  color: var(--ink-faint);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.gen-now b { color: var(--ink-2); font-weight: 600; }
-
-/* Centred in the space it occupies, rather than pinned to the top-left of
-   it. An empty state that hugs one corner leaves the rail looking broken;
-   one that sits in the middle looks like it is waiting. */
-.outline-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: 6px;
-  padding: 24px 20px;
-  font-size: 11.5px;
-  line-height: 1.6;
-  color: var(--ink-ghost);
-}
-.outline-empty svg { color: var(--ink-a12); margin-bottom: 2px; }
-.outline-empty-title {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--ink-muted);
-}
-.outline-empty p { max-width: 24ch; }
-.outline-empty b { color: var(--ink-2); font-weight: 600; }
-/* ── Add, as the last row of the list ──
-   Reads as one more line of the outline rather than as a separate control, which is what makes "the list continues here" obvious. Dashed while idle, solid on hover — the standard "this will become real" affordance. */
-.orail-add-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  min-height: 0;
-  margin-top: 3px;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  font-size: 11.5px;
-  font-weight: 500;
-  text-align: left;
-  color: var(--ink-faint);
-  background: transparent;
-  border: 1px dashed transparent;
-  transition: color var(--dur-fast) var(--ease-out),
-              background var(--dur-fast) var(--ease-out),
-              border-color var(--dur-fast) var(--ease-out);
-}
-.orail-add-row:hover {
-  color: var(--accent-500);
-  background: var(--accent-soft);
-  border-color: var(--accent-line);
 }
 
 /* ── Find & replace ── */
@@ -802,65 +248,6 @@ h1.editor-title--static:hover { background: transparent; }
 /* Placement at the caret; the panel is a MenuPanel. */
 .slash-menu { position: absolute; z-index: var(--z-popover); width: 320px; max-height: 300px; overflow-y: auto; }
 
-/* ── Inline AI ── */
-/* Placement only; the chip itself is a floating pill Button. */
-.ai-chip {
-  position: absolute;
-  z-index: var(--z-popover-low);
-  animation: fadeInUp var(--dur-enter) var(--ease-out);
-}
-/* ── The inline AI panel ──
-   It lands on top of the paragraph being edited, so its size is part of its
-   design rather than a consequence of its contents. 340px wide and ~300 tall
-   covered most of a line's worth of context; the menu is now a single filter
-   row over a short list and comes in at roughly half the height. */
-.ai-assist {
-  position: absolute;
-  z-index: var(--z-popover-high);
-  width: 300px;
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow-pop);
-  overflow: hidden;
-  /* Same anchor as the slash menu: top-left, at the selection. */
-  transform-origin: top left;
-  animation: cmdk-rise var(--dur-enter) var(--ease-out);
-}
-/* Six rows and a scroll, not twelve and a wall. */
-.ai-assist-list { max-height: 218px; overflow-y: auto; padding: 4px; }
-/* Only ever on the row under the cursor. Printed on all twelve it was a
-   second column of grey text, truncated to the point of saying nothing —
-   "Clearer and more precise, sa…". */
-.ai-assist-hint {
-  margin-left: auto;
-  font-size: 10.5px;
-  color: var(--accent-600);
-  text-align: right;
-  max-width: 52%;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.ai-assist-custom { padding: 11px; display: flex; flex-direction: column; gap: 9px; }
-.ai-assist-running {
-  display: flex; align-items: center; gap: 9px;
-  padding: 18px 14px;
-  font-size: 12.5px; color: var(--ink-muted);
-}
-.ai-assist-result { padding: 11px; }
-.ai-assist-preview {
-  max-height: 210px;
-  overflow-y: auto;
-  padding: 10px 11px;
-  border-radius: var(--radius);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  line-height: 1.65;
-  white-space: pre-wrap;
-  color: var(--ink-2);
-  background: var(--surface-2);
-  border: 1px solid var(--line-soft);
-}
-.ai-assist-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 
 .share-results {
   display: flex; flex-direction: column; gap: 2px;
@@ -963,61 +350,19 @@ h1.editor-title--static:hover { background: transparent; }
   border: 1px solid var(--line-soft);
 }
 .pdf-note b { color: var(--ink-2); font-weight: 600; }
+
+/* ── Add a model key (components/AiKeyDialog) — the export dialog's frame ── */
+.aikey { max-width: 28rem; }
+.aikey-lede { font-size: var(--text-sm); line-height: 1.55; color: var(--ink-muted); }
+.aikey-other { font-size: var(--text-xs); color: var(--ink-faint); text-align: center; }
 .pdf-submit {
   width: 100%;
   height: 40px;
   font-size: var(--text-base);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
-   The write popover — asked before anything is generated
-   ═══════════════════════════════════════════════════════════════════════ */
-
-/* Covers the rail, not the document. Everything it configures lives in the
-   rail, and putting it over the prose would repeat the mistake the inline AI
-   panel had to be rescued from. */
-.write-pop-scrim {
-  position: absolute;
-  inset: 0;
-  z-index: var(--z-drawer);
-  display: flex;
-  align-items: flex-end;
-  padding: 10px;
-  background: rgb(var(--shadow-rgb) / 0.28);
-  animation: cmdk-fade var(--dur-fast) var(--ease-out);
-}
-
-.write-pop {
-  width: 100%;
-  max-height: 100%;
-  overflow-y: auto;
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow-pop);
-  /* It rises from the button that opened it, at the foot of the rail. */
-  transform-origin: bottom center;
-  animation: cmdk-rise var(--dur-base) var(--ease-out);
-}
+/* A bolded name inside a PanelHeader title. */
 .panel-header-title b { color: var(--ink); font-weight: 600; }
-
-.write-pop-body {
-  padding: 11px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.write-pop-asks { display: flex; flex-wrap: wrap; gap: 4px; }
-/* The chosen mode explains itself in place. The switch alone made you hover
-   three buttons to learn what the three words meant. */
-.write-pop-method-hint {
-  font-size: 10.5px;
-  line-height: 1.4;
-  color: var(--ink-faint);
-  margin-top: -2px;
-}
-.write-pop-go { margin-top: 3px; }
 
 /* ── Toolbar group overflow ── */
 .toolbar-more { position: relative; display: flex; }
@@ -1057,6 +402,7 @@ h1.editor-title--static:hover { background: transparent; }
   /* The chrome loses a third of its padding and the title stops claiming a
      share of the viewport it can no longer afford. */
   .editor-header { gap: 4px; padding: 6px 8px; }
+  .editor-save { min-width: 0; }
   .editor-title {
     font-size: 14.5px;
     padding: 4px 6px;
@@ -1118,10 +464,6 @@ h1.editor-title--static:hover { background: transparent; }
   /* The panes are the positioning context the drawer is pinned inside, so it
      cannot escape over the toolbar or the status bar. */
   .editor-main { position: relative; }
-
-  /* The writing surface gives back the padding it was spending on a measure
-     it no longer has room for. */
-  .code-surface { --code-pad-x: 1rem; }
 
   /* Readings the bar can do without before it starts truncating the two that
      matter: whether the work is saved, and whether the session is live. */

@@ -22,8 +22,10 @@ import json
 import logging
 import re
 import ssl
+import time
+import urllib.parse
 import urllib.request
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +52,26 @@ _BROWSER_HEADERS = {
 # ---------------------------------------------------------------------------
 # One page
 # ---------------------------------------------------------------------------
+#: Pages read recently. A shelf of five sources grounds every section of a
+#: batch; without this each section relaunched a browser for the same pages.
+_PAGE_CACHE: Dict[str, Tuple[float, str]] = {}
+_PAGE_TTL_SECONDS = 30 * 60
+
+
 async def crawl_url(url: str) -> Optional[str]:
+    """Readable text from a URL, from the cache when it was read recently."""
+    hit = _PAGE_CACHE.get(url)
+    if hit and time.monotonic() - hit[0] < _PAGE_TTL_SECONDS:
+        return hit[1]
+    text = await _crawl_url(url)
+    if text:
+        if len(_PAGE_CACHE) > 200:
+            _PAGE_CACHE.clear()
+        _PAGE_CACHE[url] = (time.monotonic(), text)
+    return text
+
+
+async def _crawl_url(url: str) -> Optional[str]:
     """Extract readable text from a URL, or None if it cannot be read.
 
     crawl4ai renders the page in a real browser, which is the only way to get
@@ -172,3 +193,98 @@ async def crawl_urls(urls: List[str]) -> str:
     results = await asyncio.gather(*(crawl_url(url) for url in urls), return_exceptions=True)
     pages = [r for r in results if isinstance(r, str) and r]
     return "\n\n---\n\n".join(pages)[:MAX_BATCH_CHARS]
+
+
+# ---------------------------------------------------------------------------
+# Finding sources — the context shelf's "top 5"
+# ---------------------------------------------------------------------------
+_SEARCH_URL = "https://html.duckduckgo.com/html/?q="
+_SKIP_HOSTS = ("duckduckgo.com", "youtube.com", "facebook.com", "twitter.com", "x.com",
+               "instagram.com", "tiktok.com", "pinterest.")
+
+
+def _parse_results(html: str, limit: int) -> List[dict]:
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    found: List[dict] = []
+    seen = set()
+    for anchor in soup.select("a.result__a"):
+        href = anchor.get("href", "")
+        if "uddg=" in href:
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+            href = urllib.parse.unquote(query.get("uddg", [""])[0])
+        if not href.startswith("http"):
+            continue
+        host = urllib.parse.urlparse(href).netloc.lower()
+        if any(skip in host for skip in _SKIP_HOSTS) or "/y.js" in href or host in seen:
+            continue
+        seen.add(host)
+        result = anchor.find_parent(class_="result")
+        snippet = result.select_one(".result__snippet") if result else None
+        found.append({
+            "url": href,
+            "title": anchor.get_text(" ", strip=True),
+            "snippet": snippet.get_text(" ", strip=True)[:240] if snippet else "",
+        })
+        if len(found) >= limit:
+            break
+    return found
+
+
+async def search_sources(query: str, limit: int = 5) -> List[dict]:
+    """The top pages for a subject, one per site, read from a web search.
+
+    The results page is rendered by crawl4ai when it is available, like any
+    other page here, and fetched plainly otherwise.
+    """
+    url = _SEARCH_URL + urllib.parse.quote(query)
+    html: Optional[str] = None
+    try:
+        from crawl4ai import AsyncWebCrawler
+
+        async with AsyncWebCrawler() as crawler:
+            result = await crawler.arun(url=url)
+            html = getattr(result, "html", None) if result else None
+    except Exception as exc:  # unavailable or failed: the plain fetch below
+        logger.info("crawl4ai search fell back to a plain fetch: %s", exc)
+    if not html or "result__a" not in html:
+        html = await asyncio.to_thread(_read, url, _BROWSER_HEADERS, _FETCH_TIMEOUT_SECONDS)
+    return _parse_results(html or "", limit)
+
+
+# ---------------------------------------------------------------------------
+# Passages — the part of each source a section actually needs
+# ---------------------------------------------------------------------------
+_WORD = re.compile(r"[a-z0-9]{3,}")
+_STOP = {"the", "and", "for", "with", "that", "this", "from", "are", "was", "how", "what",
+         "why", "into", "its", "their", "about", "between", "using", "use", "vs"}
+
+
+def relevant_passages(pages: List[str], focus: str, budget: int = 6000) -> str:
+    """The paragraphs of `pages` most about `focus`, up to `budget` characters.
+
+    Sending five whole pages to every section is slow, expensive, and buries
+    the few paragraphs that matter: a section on "semantic chunking" needs the
+    two paragraphs about semantic chunking, not the article's introduction.
+    Paragraphs are scored by how many of the focus words they contain, and
+    kept in their original order so they still read as text.
+    """
+    terms = {w for w in _WORD.findall(focus.lower()) if w not in _STOP}
+    scored: List[Tuple[int, int, int, str]] = []
+    for p_index, page in enumerate(pages):
+        for i, para in enumerate(p for p in re.split(r"\n\s*\n", page) if len(p.strip()) > 80):
+            words = set(_WORD.findall(para.lower()))
+            score = len(terms & words)
+            if score:
+                scored.append((score, p_index, i, para.strip()))
+    if not scored:
+        return "\n\n".join(pages)[:budget]
+    keep: List[Tuple[int, int, str]] = []
+    used = 0
+    for score, p_index, i, para in sorted(scored, key=lambda row: -row[0]):
+        if used + len(para) > budget:
+            continue
+        keep.append((p_index, i, para))
+        used += len(para)
+    return "\n\n".join(para for _, _, para in sorted(keep))

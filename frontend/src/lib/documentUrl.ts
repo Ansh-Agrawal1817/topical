@@ -19,15 +19,14 @@ import { formatOf } from '@/lib/types';
 /**
  * The route a document is opened at. Spread into `Link` or `navigate`.
  *
- * Reading is the default because opening a document is not the same as
- * editing it — pass `'write'` only where the caller genuinely means "start
- * writing now", which is the moment a document is first created.
+ * Opens the document screen, which writes for anyone allowed to and reads
+ * for everyone else. Pass `'read'` to open it in read mode regardless.
  */
-export function documentRoute(id: number, mainTopic?: string | null, mode?: 'write') {
+export function documentRoute(id: number, mainTopic?: string | null, mode?: 'read') {
   return {
     to: '/projects/$format/$id' as const,
     params: { format: formatOf(mainTopic), id: String(id) },
-    search: mode === 'write' ? { mode: 'write' as const } : {},
+    search: mode === 'read' ? { mode: 'read' as const } : {},
   };
 }
 

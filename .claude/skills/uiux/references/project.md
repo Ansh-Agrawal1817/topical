@@ -57,6 +57,8 @@ Theming: `:root` holds the light values and `:root[data-theme='dark']` overrides
 | control height | `--control-h 40px`, `--control-inner-h 32px` | every toolbar-row control; inner = inside a 3px-padded tray |
 | shadows | `--shadow-xs/-sm/(base)/-lg/-pop` | barely there; a card is defined by its hairline |
 | glass | `--glass-tint(-strong/-weak)`, `--glass-border(-hover)`, `--glass-blur(-sm/-lg)`, `--glass-saturate`, `--glass-bevel`, `--glass-shadow(-lg)` | **only** chrome floating over moving content |
+| depth | `--perspective` 1200px, `--dur-depth` 160ms | the one lens and wheel-smoothing for `Depth`'s scroll-linked 3D |
+| cosmos | `--cosmos-ground/-star/-dust/-ember/-ring/-label` (both themes) | read by the `Cosmos` canvas: light = star atlas in ink on cream, dark = night sky on #0f0d0b. Marketing pages only |
 | motion | `--ease-out`, `--ease-in-out` (on-screen moves), `--ease-spring`, `--ease-panel` (sheets); `--dur-press 140 · -fast 110 · -enter 160 · -base 180 · -overlay 200 · -theme 260 · -slow 300 · -panel 350 · -reveal 420 · -theme-wipe 480 · -underline 520ms · -flash 1.2s`; loops `--dur-spin .65s · -caret 1.05s · -pulse 1.1s · -shimmer 1.4s · -blink 1.6s`; `--stagger 60ms`; `--transition-control` (the property list) | no `ease-in` on purpose; `transition: all` banned |
 | spacing | `--gutter clamp(1.25rem,5vw,3.5rem)`; `--space-0-5 … --space-12` (the 4px ladder, = Tailwind's spacing steps) | primitives draw from `--space-*`; markup may use the matching Tailwind step |
 | z-index | `--z-handle 5 · -peer 19 · -toolbar 20 · -chrome 30 · -drawer-scrim 39 · -drawer 40 · -menu 60 · -popover-low 65 · -popover 70 · -popover-high 72 · -overflow-menu 80 · -nav 100 · -float 200 · -modal 300` | local stacking inside one component (0/1/2) stays literal |
@@ -67,12 +69,13 @@ Theming: `:root` holds the light values and `:root[data-theme='dark']` overrides
 
 ## Design language (read-back)
 
-- **Refined paper.** Warm cream ground, white sheet cards on 1px hairlines with barely-there shadows. The dark theme is the same paper under warm charcoal light.
-- **One saturated hue:** terracotta = "actionable". Indigo appears only for LaTeX. Danger is rose.
-- **Type:** Newsreader serif for display and reading (600, about -0.015em, `opsz` auto); IBM Plex Sans for UI; Plex Mono for code. The ramp runs from `--text-xs` to `--text-display` with no gaps.
-- **Edges:** one radius ramp. Controls use 9px, cards 14px, dialogs 18px; pills are for descriptive chips only. Three control tiers only: primary (flat terracotta), secondary (paper + hairline), ghost (chrome only on hover; all icon-only controls).
-- **Motion:** transitions only, ease-out, 110–300ms tokens. Press is `scale()` (0.97 filled, 0.94 ghost, 0.994 cards). No stagger on app data grids. Glass only on floating chrome.
-- **"Bold" here means** display serif at `--text-display` against small UI labels, the single terracotta primary, and flat paper. It is never washes, gradients or glass on cards.
+**Frosted material over warm paper (2026-10-10).** Briefly Liquid Glass the same day; the user preferred matte frosted material and the earlier nav pill, so: no refraction (`GlassFilters`/`#lg-*` deleted), no specular rims (`--rim` is a transparent no-op), no sheen, no glossy primary. The split:
+- **Floating layer = strongest frost** (`glass.css`): the nav pill (restored to its pre-2026-10-10 form: mark · links with sliding indicator · ⌘K · theme · avatar → /settings), phone top bar and bottom tab bar, editor bars, dialogs, ⌘K. Never glass inside glass (the `:is()` rule lists the containers).
+- **Content = frosted material** (`--material-fill` + `backdrop-filter: var(--frost)`, the list of sheets is in glass.css), on `.grid-bg`, a **flat material plane** in the home page's colours (`--bg` = `--cosmos-ground`: `#faf9f5` / `#0f0d0b`). No stars or light pools outside the home page; content sheets carry no blur. Cards, lists, settings sheets. The ground is no longer flat — glass needs something to bend.
+- **Controls = pills**: `.btn` is `--radius-pill`; primary is flat terracotta with a soft shadow; secondary is a frosted `--glass-control`; trays (Segmented) are capsules whose chosen item is a solid chip (`--glass-lens` = a surface colour). Menus stay **solid** (`--surface`) — they hang off frosted chrome.
+- **Corners are concentric**: ramp xs 6 · sm 10 · base 12 (fields, menu rows) · md 16 (rows, trays, menus) · lg 22 (cards, sheets) · xl 28 (dialogs). Inner radius = outer − gap.
+- **Settings → Appearance** offers Clear/Tinted glass (`data-glass` on `<html>`, set pre-paint in index.html) and Light/Dark/System. `prefers-reduced-transparency` turns material and glass solid.
+- Still true: one terracotta primary per screen, Newsreader display/reading + Plex Sans UI, rose danger, indigo LaTeX, press = `scale()`, no `transition: all`.
 
 **Deviations from the dominant language (audit input):**
 - Two parallel button systems. The shadcn `Button` (cva, Tailwind colours) coexists with 13 aliased CSS button classes in `styles/buttons.css`, and the icon-button look has 8 aliases.
@@ -94,13 +97,13 @@ Theming: `:root` holds the light values and `:root[data-theme='dark']` overrides
 
 - `src/lib/`: API transport (`api.ts`, `communityApi.ts`), auth context, formatting (`format.ts`: `formatDate`, `relativeTime`), validation, theme, `documentUrl`, `newDocument`, `html`, `hue`.
 - `src/hooks/`: `useDismiss` (popover outside-click), `useMediaQuery`/`useCompactEditor`, `useYjsCollab`.
-- `src/features/editor/{hooks,lib}`: editor logic.
+- `src/features/editor/{hooks,lib,live}`: editor logic. `live/` is the writing surface: CodeMirror 6 in live mode (markup hidden except at the caret; `markdownLive.ts`, `latexLive.ts`, `widgets.ts`, `marks.ts`, `LiveEditor.tsx`) with a source mode; styles in `styles/live.css`. There is no preview pane — `PreviewPane` is the reading view and the off-screen source for print/PDF.
 - **Components touching storage/transport directly:**
   - `localStorage` in `CommandPalette.tsx`, `projects/TopicStarter.tsx`, `home/TopicHero.tsx` (`topical_pending_topic`)
   - `fetch(` in `routes/_authenticated/providers.tsx`
 - **URL state:**
   - Via `validateSearch`: `/projects/$format/$id` (`?mode=write`), `/login`, and the `/read` and `/editor` shims.
-  - **Not in the URL:** projects `searchQuery` + `view` (`projects.tsx:40,54`) and community `tab`/`sort`/`search` (`community.tsx:38-40`). These are audit findings (ask: behaviour change).
+  - Community `tab` is in the URL (`?tab=library|people`). **Not in the URL:** projects `searchQuery`, `view`, `filter`, and community `sort`/`search`.
 
 ## Commands (run from `frontend/`)
 
@@ -117,12 +120,12 @@ Theming: `:root` holds the light values and `:root[data-theme='dark']` overrides
 
 ## Routes / audit areas (traffic order, highest first; an estimate)
 
-1. **Document**: `/projects/$format/$id` (read by default, `?mode=write` edits). Covers `features/editor/**`, `features/preview/**`, `components/Collaborators.tsx`. Its own full-height shell; the site nav is hidden.
+1. **Document**: `/projects/$format/$id` — one screen: writers open in writing, and Read · Live · Source is a header switch (`?mode=read`); readers get read mode with no switch. Covers `features/editor/**`, `features/preview/**`, `components/Collaborators.tsx`. Its own full-height shell; the site nav is hidden.
 2. **Workspace**: `/projects` (auth). Covers `components/projects/*` (DocumentCard, TopicStarter, VisibilityChip).
 3. **Shell**: `routes/__root.tsx` (desktop nav pill, mobile bar + menu, Toaster), `_authenticated.tsx` (auth gate), `CommandPalette`, `OnboardingModal`, `ThemeToggle`, `BrandMark`. No error/404 pages.
-4. **Community**: `/community`, covering `components/community/*` (PostCard, PostDetail, NewPostDialog).
-5. **Marketing**: `/` (`features/home/*`: TopicHero, LiveDocument, Reveal) and `/about`. They use the `.band` rhythm, **deliberately separate from app pages**.
-6. **Account**: `/profile`, `/profile/edit`, `/providers`, `/u/$username`, plus `ProfileEditorFields`, `ChangePasswordCard`.
+4. **Community**: `/community`, covering `components/community/*` (ThreadRow, DocumentTile, PostDetail as a right-hand sheet, NewPostDialog); styles in `styles/community.css`. The workspace (`/projects`) uses `components/projects/WorkspaceCard.tsx` + `styles/workspace.css`.
+5. **Marketing**: `/` is the voyage (`features/home/voyage/*`: Voyage stage, `camera.ts` path, tree (topics splitting into parts, staged), `topic.ts`, solar + textures, globe + geo, `earthScenes.ts`, chapters, content; `styles/voyage.css`) — one sticky full-screen stage, one continuous camera from the galaxy to the Solar System, the Earth, its orbit, a meteor shower and the Moon's orbit, and back out; each stop shows roadmap features as abstract scene demos (no mock UI) — `earthside.ts` holds the geometry and timelines of the Earth-held stops. The logo is `alive` (BrandMark prop) on the landing only. `/about` uses `features/home/Cosmos.tsx` (a quiet turning galaxy) with the `.band` rhythm. Both are **deliberately separate from app pages**.
+6. **Settings**: `/settings?section=profile|models|writing|appearance|account` (`features/settings/*`, `styles/settings.css`; primitives `SettingsGroup/Row/Header`, `SideNav`, `Switch`, `ChoiceList`, `NumberedSteps`). `/profile`, `/profile/edit`, `/providers` are redirect shims. `/u/$username` is the public profile. AI providers: `lib/aiCredentials.ts` (11 presets) + backend allowlist `services/ai/providers.py` `PROVIDERS`; live model lists via `POST /api/ai/models`.
 7. **Auth**: `/login`, `/register` (`components/auth/AuthCard.tsx`).
 - Redirect shims `/read` and `/_authenticated/editor` are **not dead**; no UI.
 
@@ -134,11 +137,11 @@ Specific, unexcited, no filler, no "Oops!", no exclamation marks; buttons name t
 
 From project memory (Claude Code's per-project memory directory):
 - *topical-claude-ui*: "**Three control tiers, no fourth:** primary (flat terracotta), secondary (white paper + hairline), ghost (no chrome until hover; all icon-only controls)." The tiers still stand. The second half of that note ("page files keep owning size") is **superseded** by the primitives doctrine: `Button`/`IconButton` own their sizes, and page files may only place them.
-- *topical-claude-ui*: "rounded rectangles act, pills describe — controls take the ramp, chips/badges stay pills."
-- *topical-claude-ui*: "**Glass goes on chrome that floats over moving content. Nothing else.**" … "Glass is never nested." "Don't put `.editor-menu` back in glass.css's lists."
+- ~~"rounded rectangles act, pills describe"~~ **Superseded 2026-10-10** by Liquid Glass: buttons are capsules.
+- *topical-claude-ui*: "Glass is never nested." "Don't put `.editor-menu` back in glass.css's lists." (**"Glass only on floating chrome" is superseded 2026-10-10**: content uses the non-blurred *material*; see Design language.)
 - *topical-claude-ui*: "**Never write a palette colour as a literal** — use `rgb(var(--x-rgb) / a)`." "Deleting a token silently kills the whole `box-shadow` that used it."
 - *topical-claude-ui*: "`--accent-ink` must flip by theme." "Accent text on an `--accent-soft` fill needs `--accent-600`." "`--accent-200`/`-300` are fills only, never text."
-- *topical-claude-ui*: "**The page ground (`.grid-bg`) is flat.** … Do not reintroduce a wash, aurora, or scroll-driven background."
+- ~~"The page ground (`.grid-bg`) is flat."~~ **Superseded 2026-10-10:** the ground carries static ambient light for Liquid Glass. Still no scroll-driven or animated background on app screens. The marketing pages (`/`, `/about`) were redesigned at the user's request into a scroll-driven space scene (`Cosmos` canvas + `Depth`); see memory *topical-cosmic-landing*.
 - *topical-claude-ui*: "`.liquid-glass` positioning goes through `:where(...)` (zero specificity)."
 - *topical-motion-rules*: "**`transition: all` is banned.**" "Press is `transform: scale()`, not `translateY(1px)`." "Popovers are origin-aware, modals are not." "Reduced motion is 'reduced', not 'none'." "No stagger on app data grids." "no `ease-in` curve."
 - *topical-app-ui-2026-08-25*: "`.page-shell` (68rem, one padding), `.page-shell--narrow` (46rem, the only permitted exception…)… Every app screen uses both." "**Marketing pages keep their own rhythm** (`.band`)… Do not merge them."
@@ -146,5 +149,6 @@ From project memory (Claude Code's per-project memory directory):
 - *topical-document-urls*: "**Any small control in this app must declare an explicit height or it inflates to 40px.**"
 - *topical-2026-08-26-dead-code-sweep*: "The `.tok-*`, `.lx-h*`, `.avatar--*`, `.chip--*` and `.hljs-*` classes are built at runtime." "never prune CSS with a regex/selector-rewriting script in this repo." `useDismiss` ≠ `useDialogDismiss`.
 - *topical-outline-rail*: "The rail is solid (`--bg-subtle`), not glass." "There are no indent guides. Do not add a third set." "never use the `background` shorthand on `.orow`" is historical; it is safe now, but `::before/::after` on `.orow` are the drop indicators.
+- *topical-ai-tab-queue* (2026-10-11): confirmations go through `confirmAction()` (`lib/confirm.ts`) — never a toast with an action button; every dialog is centred. AI lives in the rail's AI tab (no popovers over the text).
 - *topical-auth-ui*: `.auth-shell` negative margins cancel `<main>`'s padding; "Change those paddings and this breaks." The strength meter "never gates submit."
 - *topical-perf-router-subscriptions*: "always pass a selector to `useRouterState`."

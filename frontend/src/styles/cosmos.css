@@ -1,0 +1,81 @@
+/* Cosmos — the quiet sky behind the about page (features/home/Cosmos.tsx).
+
+   The landing page has its own stage (styles/voyage.css). App screens keep
+   the flat page ground — the 2026-08-24 rule against washes on the *app's*
+   ground stands. */
+
+/* ── The page and its sky ──
+   `isolation` makes the page its own stacking context: the canvas (-1)
+   paints under the page's content but over the app's ground (`.grid-bg`),
+   which sits outside it. `overflow-x: clip`, not `hidden`:
+   `hidden` would turn the page into a scroll container of its own. */
+.cosmos-page {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 100dvh;
+  overflow-x: clip;
+}
+/* `lvh`, so the canvas is sized once for the tallest the viewport gets and
+   is not reallocated every time a phone's address bar slides. */
+.cosmos {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: -1;
+  display: block;
+  width: 100%;
+  height: 100lvh;
+  pointer-events: none;
+}
+
+/* Body copy over the sky carries a faint halo, for where a star sits behind
+   a word — but not anything with a ground of its own. */
+.cosmos-page :is(.band, .arrival-stage) {
+  text-shadow: 0 0 2px var(--cosmos-ground), 0 0 10px var(--cosmos-ground);
+}
+.cosmos-page :is(.band, .arrival-stage) .btn { text-shadow: none; }
+
+/* ── Arrival ──
+   The about page's closing call to action, over the sky. */
+.arrival-stage {
+  display: flex;
+  justify-content: center;
+  min-height: 108vh;
+  padding: clamp(5rem, 12vh, 8rem) var(--gutter) 3rem;
+}
+.arrival {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.arrival-mark {
+  width: clamp(2.75rem, 6vw, 3.75rem);
+  height: clamp(2.75rem, 6vw, 3.75rem);
+  margin-bottom: 1.75rem;
+  stroke-width: 1.6;
+}
+.arrival-title {
+  max-width: 13ch;
+  font-family: var(--font-serif);
+  font-size: var(--text-display);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.022em;
+  font-optical-sizing: auto;
+  color: var(--ink);
+  text-wrap: balance;
+}
+.arrival-sub {
+  margin: 1rem 0 2.25rem;
+  font-size: var(--text-md);
+  line-height: 1.55;
+  color: var(--ink-muted);
+}
+
+/* ── The site footer, over the sky ── */
+.cosmos-page .site-footer { border-top-color: var(--line); }
