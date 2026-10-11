@@ -6,7 +6,7 @@ import { formatOf } from "@/lib/types";
 import { documentRoute } from "@/lib/documentUrl";
 import { formatDate, formatMonthYear } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
-import { Button, EmptyState, PageHeader, IdentityBanner, DocTypeIcon, LoadingState, BackLink, Page, Row, Grid, Text } from '@/components/ui';
+import { Button, EmptyState, Heading, IdentityBanner, DocTypeIcon, LoadingState, BackLink, Page, Row, Grid, Text } from '@/components/ui';
 
 export const Route = createFileRoute("/u/$username")({
   component: PublicProfile,
@@ -102,12 +102,15 @@ function PublicProfile() {
       />
 
       {/* ── Published work ── */}
-      <PageHeader
-        level="section"
-        title="Published"
-        subtitle={`Documents ${isSelf ? "you have" : `${name} has`} shared publicly.`}
-        className="mt-10 mb-4"
-      />
+      {/* A section of this page, set at the app's subsection size: the
+          marketing-section headline it used was larger than the person's own
+          name in the banner above it. */}
+      <div className="mt-10 mb-4">
+        <Heading level={2} size="subsection">Published</Heading>
+        <Text size="sm" tone="muted" className="mt-1">
+          Documents {isSelf ? "you have" : `${name} has`} shared publicly.
+        </Text>
+      </div>
 
       {published.length === 0 ? (
         <EmptyState

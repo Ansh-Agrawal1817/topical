@@ -871,6 +871,12 @@ a:active > .brand-lockup { transform: scale(0.97); }
   padding: 2.5rem 1.75rem 1.5rem;
   flex-wrap: wrap;
 }
+/* On a phone the text column is taller than the avatar, and bottom-aligned
+   beside it the avatar sank into the banner's corner. Stacked, it heads the
+   card the way a profile is read. */
+@media (max-width: 560px) {
+  .identity-inner { flex-direction: column; align-items: flex-start; gap: 1rem; padding: 1.5rem 1.25rem 1.25rem; }
+}
 
 /* ── The page header, tightened ──
    For a screen whose header sits directly on top of a control the reader is

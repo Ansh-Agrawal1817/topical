@@ -14,7 +14,6 @@
 }
 @media (max-width: 1023px) {
   .community-layout { grid-template-columns: minmax(0, 1fr); gap: 2rem; }
-  .community-aside { order: -1; display: none; }
 }
 .community-main { min-width: 0; }
 
@@ -280,6 +279,14 @@
 
 /* ── Sidebar ── */
 .community-aside { position: sticky; top: 6.5rem; display: flex; flex-direction: column; gap: 1rem; }
+/* One column: the feed first. The aside's digests repeat what the Library and
+   People tabs hold, so only the visitor's sign-in card stays, under the feed.
+   This sat above the base rule and lost to it, so on a phone three cards
+   pushed the discussions 600px down the page. */
+@media (max-width: 1023px) {
+  .community-aside { position: static; }
+  .community-aside .aside-card:not(.aside-card--intro) { display: none; }
+}
 .aside-card {
   padding: 1.1rem 1.15rem;
   border: 1px solid var(--material-line);
@@ -430,3 +437,7 @@
   .thread-side { grid-column: 2; padding-top: 0; }
   .thread-sheet-body { padding: 1.25rem 1.1rem 2.5rem; }
 }
+
+/* ── New discussion dialog ── */
+.new-post-attach { justify-content: flex-start; gap: 0.5rem; }
+.new-post-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.25rem; }

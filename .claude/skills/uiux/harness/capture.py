@@ -33,7 +33,7 @@ async def open_post(page):
 
 
 async def new_post(page):
-    b = page.locator("button:has-text('New post'), button:has-text('New Post')").first
+    b = page.locator("button:has-text('New discussion'), button:has-text('New post')").first
     if await b.count():
         await b.click()
         await page.wait_for_timeout(400)
@@ -91,7 +91,7 @@ STATES = [
     ("register", "/register", False, "full", None, None),
     ("community-anon", "/community", False, "full", None, None),
     ("community", "/community", True, "full", None, None),
-    ("community-lessons", "/community", True, "full", "tab:Lessons", None),
+    ("community-library", "/community", True, "full", "tab:Library", None),
     ("community-people", "/community", True, "full", "tab:People", None),
     ("community-empty", "/community", True, "empty", None, None),
     ("post-detail", "/community", True, "full", "open_post", None),

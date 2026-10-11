@@ -91,23 +91,28 @@ export function WorkspaceCard({ doc, isAuthor, layout, onOpen, onDelete, childre
     );
   }
 
-  const headings = shape.outline.slice(0, 6);
-  const excerpt = headings.length ? '' : excerptOf(shape.content, doc.mainTopic, 160);
+  // The card names the document below; a top heading that only repeats that
+  // name is not part of the contents.
+  const states = shape.states[0]?.node.label.trim().toLowerCase() === doc.name.trim().toLowerCase()
+    ? shape.states.slice(1)
+    : shape.states;
+  const shown = states.slice(0, 5);
+  const excerpt = states.length ? '' : excerptOf(shape.content, doc.mainTopic, 160);
 
   return (
     <div className="ws-card">
-      {/* The page, in miniature: its outline as a contents list, ticked where written. */}
+      {/* Its contents, in miniature: the outline, ticked where written. The
+          title is set once, below — this used to print it twice. */}
       <div className="ws-page" aria-hidden="true">
-        <span className="ws-page-title">{doc.name}</span>
-        {headings.length > 0 ? (
+        {shown.length > 0 ? (
           <ol className="ws-page-toc">
-            {shape.states.slice(0, 6).map(({ node, leaf, written }) => (
+            {shown.map(({ node, leaf, written }) => (
               <li key={node.id} data-level={Math.min(node.level, 3)} data-written={written} data-leaf={leaf}>
                 <span className="ws-page-dot" />
                 {node.label}
               </li>
             ))}
-            {shape.outline.length > headings.length && <li className="ws-page-more">+{shape.outline.length - headings.length} more</li>}
+            {states.length > shown.length && <li className="ws-page-more">+{states.length - shown.length} more</li>}
           </ol>
         ) : (
           <p className="ws-page-text">{excerpt || 'An empty page — open it and name the first section.'}</p>

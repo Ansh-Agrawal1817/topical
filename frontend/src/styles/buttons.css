@@ -365,6 +365,8 @@
 /* The icon warms with the field, so the whole control confirms the focus. */
 .input-wrap:focus-within .input-icon { color: var(--accent-500); }
 .input-trailing { position: absolute; right: 0.4rem; display: flex; }
+/* A shortcut hint means nothing without a keyboard, and there is no room for it on a phone. */
+@media (hover: none), (max-width: 640px) { .search-field-hint { display: none; } }
 .input--leading { padding-left: 2.4rem; }
 .input--trailing { padding-right: 2.75rem; }
 

@@ -270,24 +270,22 @@ function CommunityPage() {
 
         {/* ── Sidebar: the other two tabs, in brief ── */}
         <aside className="community-aside" aria-label="Around the community">
-          <section className="aside-card aside-card--intro">
-            <PenLine className="h-4 w-4 aside-card-icon" />
-            <h2 className="aside-title">Working on something?</h2>
-            <p className="aside-text">
-              Share a draft for feedback, or ask how others would structure a topic. Attach a published
-              document and readers can open it from the discussion.
-            </p>
-            {isAuthenticated ? (
-              /* Secondary: the header's button is this screen's one primary. */
-              <Button variant="secondary" size="md" width="full" onClick={() => setShowNewPost(true)}>
-                <Plus className="h-3.5 w-3.5" /> New discussion
-              </Button>
-            ) : (
-              <Button asChild variant="secondary" size="md" width="full">
+          {/* For a visitor only: signed in, the header's button already says
+              this, and a second "New discussion" here was the same action
+              offered twice on one screen. */}
+          {!isAuthenticated && (
+            <section className="aside-card aside-card--intro">
+              <PenLine className="h-4 w-4 aside-card-icon" />
+              <h2 className="aside-title">Join the conversation</h2>
+              <p className="aside-text">
+                Share a draft for feedback, or ask how others would structure a topic. Reading is open to
+                everyone; posting needs an account.
+              </p>
+              <Button asChild variant="primary" size="md" width="full">
                 <Link to="/login">Sign in to post</Link>
               </Button>
-            )}
-          </section>
+            </section>
+          )}
 
           <section className="aside-card">
             <div className="aside-head">

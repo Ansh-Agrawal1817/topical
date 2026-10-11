@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { PenLine, BookOpen } from 'lucide-react';
+import { PenLine, FileText, ChevronDown } from 'lucide-react';
+import { toast } from 'sonner';
 import type { Post } from '@/lib/communityApi';
 import { createPost } from '@/lib/communityApi';
 import { getPublicLessonPlans } from '@/lib/api';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/auth-context';
+import { errorMessage } from '@/lib/utils';
 import { Button, Field, Input, Textarea, MenuEmpty, MenuItem, MenuPanel, Stack, PanelHeader, Modal } from '@/components/ui';
 
 interface NewPostDialogProps {
@@ -41,13 +43,15 @@ export function NewPostDialog({ onClose, onCreated }: NewPostDialogProps) {
       });
       onCreated(post);
       onClose();
-    } catch {
+    } catch (error) {
+      // It used to fail silently: the button came back and nothing said why.
+      toast.error(errorMessage(error, 'Could not post that discussion'));
       setSubmitting(false);
     }
   }
 
   return (
-    <Modal label="New post" onClose={onClose} overlayClassName="modal-overlay">
+    <Modal label="New discussion" onClose={onClose} overlayClassName="modal-overlay">
       {/* A real form, so Enter in the title submits and the browser knows what
           this is. It was a `<div>` with a button at the bottom, which means the
           one key everybody presses to finish a short form did nothing. */}
@@ -55,7 +59,7 @@ export function NewPostDialog({ onClose, onCreated }: NewPostDialogProps) {
         className="new-post-dialog"
         onSubmit={e => { e.preventDefault(); handleSubmit(); }}
       >
-        <PanelHeader size="md" icon={<PenLine className="h-4 w-4" />} title="New post" onClose={onClose} />
+        <PanelHeader size="md" icon={<PenLine className="h-4 w-4" />} title="New discussion" onClose={onClose} />
 
         <Stack gap={4} className="p-5">
           {/* Labelled, not placeholder-only. A placeholder is gone the instant
@@ -85,18 +89,21 @@ export function NewPostDialog({ onClose, onCreated }: NewPostDialogProps) {
             />
           </Field>
 
-          {/* Attach lesson */}
-          <div>
+          {/* Attach a published document: readers open it from the discussion. */}
+          <Field id="new-post-doc" label="Attach a document" requirement="optional">
             <Button
+              id="new-post-doc"
               type="button"
-              variant="ghost"
+              variant="secondary"
               size="md"
-              className="mb-2"
+              width="full"
+              className="new-post-attach"
               aria-expanded={showLessons}
               onClick={() => setShowLessons(v => !v)}
             >
-              <BookOpen className="h-3.5 w-3.5" />
-              {attachedName ? `Attached: ${attachedName}` : 'Attach one of your lessons (optional)'}
+              <FileText className="h-3.5 w-3.5" />
+              <span className="truncate">{attachedName || 'None'}</span>
+              <ChevronDown className="ml-auto h-3.5 w-3.5" />
             </Button>
 
             {showLessons && (
@@ -114,21 +121,21 @@ export function NewPostDialog({ onClose, onCreated }: NewPostDialogProps) {
                   </MenuItem>
                 ))}
                 {myPlans.length === 0 && (
-                  <MenuEmpty>No public lessons found. Make a lesson public first.</MenuEmpty>
+                  <MenuEmpty>You have no published documents yet. Publish one from your workspace to attach it.</MenuEmpty>
                 )}
               </MenuPanel>
             )}
-          </div>
+          </Field>
 
-          <Button
-            type="submit"
-            variant="primary"
-            size="hero"
-            width="full"
-            disabled={!title.trim() || submitting}
-          >
-            {submitting ? 'Posting…' : 'Post to community'}
-          </Button>
+          {/* Cancel beside the action, as in every other dialog here; the
+              full-width "Post to community" slab read as disabled until a
+              title was typed, and gave no way out but the corner. */}
+          <div className="new-post-actions">
+            <Button type="button" variant="ghost" size="md" onClick={onClose}>Cancel</Button>
+            <Button type="submit" variant="primary" size="md" loading={submitting} disabled={!title.trim() || submitting}>
+              Post discussion
+            </Button>
+          </div>
         </Stack>
       </form>
     </Modal>

@@ -14,7 +14,7 @@ import { useAuth } from '@/lib/auth-context';
 import { getLessonPlans, deleteLessonPlan, saveLessonPlan, LessonPlanResponse } from '@/lib/api';
 import { createDocument } from '@/lib/newDocument';
 import { documentRoute } from '@/lib/documentUrl';
-import { formatDate } from '@/lib/format';
+import { relativeTime } from '@/lib/format';
 import { whenIdle } from '@/lib/idle';
 import type { DocFormat } from '@/lib/types';
 import { Plus, FolderOpen, LayoutGrid, List } from 'lucide-react';
@@ -261,7 +261,7 @@ function ProjectsPage() {
           <span><b>{projects.length}</b> document{projects.length === 1 ? '' : 's'}</span>
           <span><b>{totalWords.toLocaleString()}</b> words</span>
           <span><b>{publicCount}</b> published</span>
-          {lastEdited && <span>last edited {formatDate(lastEdited)}</span>}
+          {lastEdited && <span>last edited {relativeTime(lastEdited)}</span>}
         </p>
       )}
 

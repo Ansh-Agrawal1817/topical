@@ -25,12 +25,13 @@ export function formatMonthYear(value: string | null | undefined): string {
 }
 
 /**
- * How long ago, coarsely: "just now", "5m ago", "3h ago", "2d ago".
+ * How long ago, coarsely: "just now", "5m ago", "3h ago", "2d ago" — and past
+ * a week, the date itself ("Sep 28", with the year once it is not this one).
  *
  * For timestamps a reader is scanning rather than reading — post and comment
  * bylines — where "how recent" is the whole question and the exact date is
- * noise. Both community surfaces carried their own copy of this, and they had
- * already drifted apart in the day/hour branch.
+ * noise. Past a week it stops being a question of recency: "45d ago" makes
+ * the reader do arithmetic to learn the month.
  */
 export function relativeTime(value: string | null | undefined): string {
   if (!value) return '';
@@ -42,5 +43,13 @@ export function relativeTime(value: string | null | undefined): string {
   if (minutes < 60) return `${minutes}m ago`;
 
   const hours = Math.floor(minutes / 60);
-  return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  const date = new Date(then);
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(date.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}),
+  });
 }

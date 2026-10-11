@@ -38,7 +38,7 @@ export const SearchField = React.forwardRef<HTMLInputElement, SearchFieldProps>(
         <IconButton size="sm" onClick={() => onValueChange("")} aria-label={clearLabel}>
           <X className="h-3.5 w-3.5" />
         </IconButton>
-      ) : hint ?? null}
+      ) : hint != null ? <span className="search-field-hint">{hint}</span> : null}
       className={[grow ? "search-field--grow" : "", className ?? ""].join(" ").trim() || undefined}
       {...props}
     />

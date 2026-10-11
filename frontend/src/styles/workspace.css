@@ -125,7 +125,7 @@
 
 /* The page in miniature: its outline as a contents list. */
 .ws-page {
-  height: 9.75rem;
+  height: 7.75rem;
   margin: 0.75rem 0.75rem 0;
   padding: 0.9rem 1rem 0;
   overflow: hidden;
@@ -136,24 +136,13 @@
   -webkit-mask: linear-gradient(180deg, #000 70%, transparent);
   mask: linear-gradient(180deg, #000 70%, transparent);
 }
-.ws-page-title {
-  display: block;
-  margin-bottom: 0.55rem;
-  overflow: hidden;
-  font-family: var(--font-serif);
-  font-size: 0.82rem;
-  font-weight: 600;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: var(--ink-2);
-}
 .ws-page-toc { display: flex; flex-direction: column; gap: 0.3rem; margin: 0; padding: 0; list-style: none; }
 .ws-page-toc li {
   display: flex;
   align-items: center;
   gap: 0.45rem;
   overflow: hidden;
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.3;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -197,6 +186,9 @@
   background: var(--accent-soft);
 }
 .ws-format[data-format='latex'] { color: var(--latex-500); background: var(--latex-soft); }
+/* In a list the chip is a column: one width, so every title starts on the
+   same edge — "LaTeX" is wider than "MDX" and pushed its row's title over. */
+.ws-row .ws-format { flex-shrink: 0; width: 3.3rem; text-align: center; }
 .ws-edited { font-size: 11.5px; color: var(--ink-faint); }
 .ws-title { margin: 0; }
 .ws-open {
@@ -246,4 +238,23 @@
 @media (max-width: 640px) {
   .ws-row { flex-wrap: wrap; }
   .ws-row-side { width: 100%; padding-left: 3.1rem; }
+}
+
+/* An empty workspace has no facts line or continue card between the topic
+   bar and the list, and the heading sat 36px under the bar as if attached. */
+.topic-bar--workspace + .ws-bar { margin-top: 2.25rem; }
+
+/* ── Phones ──
+   The continue card's caps label wrapped to two lines beside a 64px ring,
+   and each card spent half its height on the miniature. */
+@media (max-width: 520px) {
+  .ws-continue { gap: 1rem; padding: 1.1rem; }
+  .ws-continue-ring { width: 48px; height: 48px; }
+  .ws-continue-ring::before {
+    mask: radial-gradient(circle, transparent 18px, #000 19px);
+    -webkit-mask: radial-gradient(circle, transparent 18px, #000 19px);
+  }
+  .ws-continue-ring span { font-size: 11px; }
+  .ws-continue-kicker { letter-spacing: 0.08em; }
+  .ws-page { height: 6.25rem; }
 }

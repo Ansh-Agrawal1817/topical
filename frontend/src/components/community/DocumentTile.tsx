@@ -33,7 +33,7 @@ export function DocumentTile({ plan, author, own }: { plan: LessonPlanResponse; 
       <span className="doc-tile-excerpt">{excerpt || 'No prose yet — an outline waiting to be written.'}</span>
       <span className="doc-tile-foot">
         <span className="doc-tile-author">
-          <Avatar seed={plan.userId} name={author} size="xs" />
+          <Avatar seed={plan.userId} name={plan.authorUsername ?? author} size="xs" />
           <span className="truncate">{author}</span>
         </span>
         <span className="doc-tile-date">{formatDate(plan.updatedAt ?? plan.createdAt)}</span>

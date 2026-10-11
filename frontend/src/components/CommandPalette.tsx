@@ -111,7 +111,7 @@ export function CommandPalette({ open, onClose, isAuthenticated }: Props) {
         run: () => { startDocument('latex'); } },
       { id: 'projects', label: 'Projects', group: 'Go to', icon: FolderOpen, run: go('/projects') },
       ...base,
-      { id: 'lessons', label: 'Public lessons', group: 'Go to', icon: BookOpen, run: go('/community') },
+      { id: 'lessons', label: 'Community library', group: 'Go to', icon: BookOpen, run: go('/community') },
       { id: 'settings', label: 'Settings', hint: 'Profile, models, appearance', group: 'Go to', icon: UserIcon, run: () => { onClose(); navigate({ to: '/settings' }); } },
       { id: 'providers', label: 'AI models', hint: 'Connect a provider', group: 'Go to', icon: KeyRound, run: () => { onClose(); navigate({ to: '/settings', search: { section: 'models' } }); } },
       { id: 'edit-profile', label: 'Edit profile', hint: 'Name, handle, bio', group: 'Go to', icon: Settings2, run: () => { onClose(); navigate({ to: '/settings', search: { section: 'profile' } }); } },
