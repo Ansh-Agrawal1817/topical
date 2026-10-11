@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth-context';
 import { useCompactEditor } from '@/hooks/useMediaQuery';
@@ -10,7 +10,6 @@ import { useFindReplace } from './hooks/useFindReplace';
 import { EditorHeader } from './components/EditorHeader';
 import { Toolbar } from './components/Toolbar';
 import { ShortcutsSheet } from './components/ShortcutsSheet';
-import { PreviewPane } from './components/PreviewPane';
 import { OutlineRail } from './components/OutlineRail';
 import { StatusBar } from './components/StatusBar';
 import { FindBar } from './components/FindBar';
@@ -39,6 +38,7 @@ import type { EditorAction } from './lib/actions';
 import { copyText, downloadSource, printPreview, wrapLatexDocument } from './lib/exporters';
 import { ExportPdfDialog } from './components/ExportPdfDialog';
 import { loadOptions, saveOptions, type ViewOptions } from './lib/viewOptions';
+import { whenIdle } from '@/lib/idle';
 
 export interface DocumentViewProps {
   /** The document, already loaded and access-checked by the route. */
@@ -61,6 +61,18 @@ export interface DocumentViewProps {
   /** Out to the projects list. */
   onBack: () => void;
 }
+
+/**
+ * The typeset view — Read mode, a reader's view, and the source of a print or
+ * PDF — loaded when first needed. It carries the whole Markdown → HTML
+ * pipeline (react-markdown, remark, rehype: ~165KB), which writing in the live
+ * editor never touches. Warmed in idle time once the editor is up, so
+ * switching to Read finds it already there.
+ */
+const loadPreview = () => import('./components/PreviewPane');
+const PreviewPane = lazy(() => loadPreview().then(m => ({ default: m.PreviewPane })));
+/** What a pane shows for the moment the preview is still arriving. */
+const PREVIEW_PENDING = <div className="doc-preview" aria-busy="true" />;
 
 /**
  * The document screen — reading and writing are two modes of it, not two
@@ -633,6 +645,13 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
   }, [currentSelection, doc, editing, find, openAi, setAiOpen, toggleOutline]);
 
   // ── Export ──────────────────────────────────────────────────────────────
+  // Warm the typeset view once the editor is idle, so Read, Print and Export
+  // never wait on the network for it.
+  useEffect(() => {
+    if (!editing) return;
+    return whenIdle(() => { void loadPreview(); }, 4000, 1500);
+  }, [editing]);
+
   /*
    * Printing needs the typeset document, which only exists on screen while
    * reading. While writing it is mounted off-screen for the length of the
@@ -669,7 +688,9 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
     } else if (kind === 'pdf') {
       setShowPdf(true);
     } else if (editing) {
-      setPrinting(true);
+      // The off-screen copy is printed two frames after it mounts, so the
+      // lazily loaded preview has to be here before it is asked for.
+      void loadPreview().then(() => setPrinting(true));
     } else {
       printPreview();
     }
@@ -800,7 +821,9 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
           </div>
         ) : (
           <div className="editor-preview doc-themed" {...styleAttrs}>
-            <PreviewPane content={doc.content} format={doc.format} fontSize={options.fontSize} />
+            <Suspense fallback={PREVIEW_PENDING}>
+              <PreviewPane content={doc.content} format={doc.format} fontSize={options.fontSize} />
+            </Suspense>
           </div>
         )}
 
@@ -834,7 +857,9 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
 
         {offscreen && (
           <div className="editor-preview editor-print-source" aria-hidden="true">
-            <PreviewPane content={doc.content} format={doc.format} />
+            <Suspense fallback={null}>
+              <PreviewPane content={doc.content} format={doc.format} />
+            </Suspense>
           </div>
         )}
       </div>

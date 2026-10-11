@@ -1,14 +1,14 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, type ReactNode } from 'react';
 import { defaultKeymap, history, historyKeymap, redo, undo } from '@codemirror/commands';
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { syntaxHighlighting } from '@codemirror/language';
+import { markdownKeymap, markdownLanguage } from '@codemirror/lang-markdown';
+import { Language, syntaxHighlighting } from '@codemirror/language';
 import { Annotation, Compartment, EditorState, Prec, Transaction, type Extension } from '@codemirror/state';
 import {
   drawSelection, dropCursor, EditorView, highlightActiveLine, keymap, lineNumbers, placeholder as placeholderText,
   type KeyBinding,
 } from '@codemirror/view';
-import { tagHighlighter, tags } from '@lezer/highlight';
-import { GFM } from '@lezer/markdown';
+import { styleTags, tagHighlighter, tags } from '@lezer/highlight';
+import { GFM, type MarkdownParser } from '@lezer/markdown';
 import type { DocFormat } from '@/lib/types';
 import type { AwarenessCursor } from '@/hooks/useYjsCollab';
 import { actionsFor } from '../lib/actions';
@@ -147,8 +147,27 @@ function receiveText(view: EditorView, text: string) {
   });
 }
 
+/**
+ * Markdown with GFM and maths, built without `markdown()`.
+ *
+ * That helper always constructs an HTML language for the tags inside a
+ * document — and with it the HTML, CSS and JavaScript grammars, 146KB of the
+ * editor's bundle — whether or not anything asks for it. Nothing here did:
+ * the live page draws a tag as `cm-live-html`, and the source view only needs
+ * it coloured, which `styleTags` does without parsing inside it. What
+ * `markdown()` contributed that is used — the keymap that clears a list or
+ * quote marker on Backspace — is added back in `languageFor`.
+ */
+const mdxLanguage = new Language(
+  markdownLanguage.data,
+  // The base parser carries lang-markdown's fold, indent and language-data props.
+  (markdownLanguage.parser as MarkdownParser).configure([GFM, mathSyntax, { props: [styleTags({ HTMLTag: tags.tagName })] }]),
+  [],
+  'markdown',
+);
+
 function languageFor(format: DocFormat): Extension {
-  return format === 'latex' ? latexLanguage : markdown({ base: markdownLanguage, extensions: [GFM, mathSyntax] });
+  return format === 'latex' ? latexLanguage : [mdxLanguage, Prec.high(keymap.of(markdownKeymap))];
 }
 
 function liveFor(format: DocFormat, mode: SurfaceMode): Extension {

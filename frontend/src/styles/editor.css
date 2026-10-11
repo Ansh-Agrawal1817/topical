@@ -355,11 +355,6 @@ h1.editor-title--static:hover { background: transparent; }
 .aikey { max-width: 28rem; }
 .aikey-lede { font-size: var(--text-sm); line-height: 1.55; color: var(--ink-muted); }
 .aikey-other { font-size: var(--text-xs); color: var(--ink-faint); text-align: center; }
-.pdf-submit {
-  width: 100%;
-  height: 40px;
-  font-size: var(--text-base);
-}
 
 /* A bolded name inside a PanelHeader title. */
 .panel-header-title b { color: var(--ink); font-weight: 600; }
@@ -371,21 +366,6 @@ h1.editor-title--static:hover { background: transparent; }
    against a bar that clips and seals it. */
 /* Placement at the chevron; the panel is a MenuPanel. */
 .toolbar-menu { position: fixed; z-index: var(--z-overflow-menu); min-width: 172px; }
-
-/* ── A collaborator's selection ──
-   Awareness always carried the length; only the caret was drawn from it, so a
-   peer highlighting a paragraph appeared as one blinking bar and you could not
-   see what they were about to replace. One box per visual line, because a
-   wrapped selection is not a rectangle. */
-.peer-selection {
-  position: absolute;
-  z-index: var(--z-peer);
-  border-radius: 2px;
-  pointer-events: none;
-  /* Position is recomputed on every keystroke, scroll and resize, so it must
-     not animate — a highlight easing toward the text as somebody types reads
-     as lag in their typing, not as smoothness in yours. */
-}
 
 /* ═══════════════════════════════════════════════════════════════════════
    ── Narrow windows ──

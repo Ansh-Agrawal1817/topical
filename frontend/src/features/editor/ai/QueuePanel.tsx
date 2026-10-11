@@ -1,17 +1,6 @@
-import { useEffect, useState } from 'react';
 import { AlertTriangle, Check, Clock, RotateCcw, SkipForward, X } from 'lucide-react';
 import { Button, IconButton, Spinner } from '@/components/ui';
-import { isActive, useAiJobs, type AiQueue, type Job } from './queue';
-
-/** Re-render every second while something is counting down. */
-function useTick(active: boolean) {
-  const [, setNow] = useState(0);
-  useEffect(() => {
-    if (!active) return;
-    const id = window.setInterval(() => setNow(n => n + 1), 1000);
-    return () => window.clearInterval(id);
-  }, [active]);
-}
+import { isActive, useAiJobs, useSecondTick, type AiQueue, type Job } from './queue';
 
 const STATUS_TEXT: Record<Job['status'], string> = {
   queued: 'Waiting', running: 'Writing', retrying: 'Retrying', done: 'Done', failed: 'Failed', cancelled: 'Cancelled',
@@ -75,7 +64,7 @@ export function QueuePanel({ queue }: { queue: AiQueue }) {
   const jobs = useAiJobs(queue);
   const active = jobs.filter(isActive);
   const finished = jobs.filter(job => !isActive(job));
-  useTick(jobs.some(job => job.status === 'retrying'));
+  useSecondTick(jobs.some(job => job.status === 'retrying'));
 
   if (!jobs.length) {
     return <p className="ai-empty">Nothing running. Sections you write and edits you ask for line up here, one at a time.</p>;

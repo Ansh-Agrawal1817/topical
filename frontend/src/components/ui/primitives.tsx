@@ -58,17 +58,7 @@ export function Page({ width = 'default', className, ...rest }: Div & { width?: 
   return <div className={cn('page-shell', width === 'narrow' && 'page-shell--narrow', className)} {...rest} />;
 }
 
-/* ─────────────────────────── DetailRow ─────────────────────────── */
-
-/** A labelled fact: the label and the value on one baseline. */
-export function DetailRow({ label, children, className }: { label: React.ReactNode; children: React.ReactNode; className?: string }) {
-  return (
-    <div className={cn('detail-row', className)}>
-      <span className="detail-label">{label}</span>
-      <span className="detail-value">{children}</span>
-    </div>
-  );
-}
+/* ─────────────────────────── DetailEmpty ─────────────────────────── */
 
 /** What a fact says when it has no value yet — and, where it helps, how to give it one. */
 export function DetailEmpty({ children }: { children: React.ReactNode }) {

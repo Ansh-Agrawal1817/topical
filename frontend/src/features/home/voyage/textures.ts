@@ -1,4 +1,5 @@
 import type { Palette } from '../scene/palette'
+import { whenIdle } from '@/lib/idle'
 
 /**
  * The Solar System's textures: the Sun and each planet painted once, per
@@ -201,14 +202,7 @@ export function solarTextures(pal: Palette): SolarTextures {
 /** Paint the textures for this palette the next time the browser is idle. */
 export function prepareSolarTextures(pal: Palette) {
   cancelPrepare()
-  const run = () => { cancel = null; solarTextures(pal) }
-  if (typeof window.requestIdleCallback === 'function') {
-    const id = window.requestIdleCallback(run, { timeout: 1500 })
-    cancel = () => window.cancelIdleCallback(id)
-  } else {
-    const id = setTimeout(run, 200)
-    cancel = () => clearTimeout(id)
-  }
+  cancel = whenIdle(() => { cancel = null; solarTextures(pal) }, 1500, 200)
 }
 
 export function cancelPrepare() {

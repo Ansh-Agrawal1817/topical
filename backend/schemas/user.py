@@ -45,16 +45,6 @@ class PublicUser(ORMModel):
     model_config = {"from_attributes": True, "populate_by_name": True}
 
 
-class Byline(BaseModel):
-    """Only what an attribution line needs, for someone else's work."""
-
-    id: str
-    given_name: Optional[str] = None
-    family_name: Optional[str] = None
-    username: Optional[str] = None
-    avatar_url: Optional[str] = None
-
-
 class UsernameMatch(BaseModel):
     """One row of the co-author picker's autocomplete."""
 

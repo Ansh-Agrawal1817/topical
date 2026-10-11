@@ -32,13 +32,6 @@
 }
 
 
-/* Card slots (components/ui/card.tsx): the 24px inset the shadcn card used,
-   with the content butting up to the header rather than re-padding the top. */
-.card-header { display: flex; flex-direction: column; gap: var(--space-1-5); padding: var(--space-6); }
-.card-description { font-size: 0.875rem; line-height: 1.43; color: var(--ink-muted); }
-.card-content { padding: 0 var(--space-6) var(--space-6); }
-.card-footer { display: flex; align-items: center; padding: 0 var(--space-6) var(--space-6); }
-
 /* Padding scale, so panels don't each invent their own */
 .surface-p-sm { padding: 0.85rem 1rem; }
 .surface-p-md { padding: 1.25rem 1.35rem; }
@@ -66,7 +59,6 @@
    ═══════════════════════════════════════════════════════════════════════ */
 .pub-row,
 .provider-tile,
-.brand-card,
 .identity-banner {
   background: var(--material-fill);
   border: 1px solid var(--material-line);
@@ -79,8 +71,7 @@
 
 /* Rows are cards laid flat: same material, tighter corner, because a 14px
    radius on a 56px-tall strip reads as a lozenge. */
-.pub-row,
-.model-option {
+.pub-row {
   border-radius: var(--radius-md);
 }
 
@@ -93,8 +84,7 @@
    card in a grid standing up for no reason long after the finger has gone. */
 @media (hover: hover) and (pointer: fine) {
   .pub-row:hover,
-  .provider-tile:hover,
-  .brand-card:hover {
+  .provider-tile:hover {
     border-color: var(--line-strong);
     box-shadow: var(--shadow);
     transform: translateY(-2px);
@@ -113,8 +103,7 @@
    The scale is smaller than a button's: the same 3% on a 340px card is a
    visible jolt, where on a 90px button it is a nudge. */
 .pub-row:active,
-.provider-tile:active,
-.brand-card:active {
+.provider-tile:active {
   transform: scale(0.994);
   transition-duration: var(--dur-press);
 }
@@ -133,20 +122,14 @@
 @media (hover: none) {
   .pub-row:hover,
   .provider-tile:hover,
-  .brand-card:hover,
   .ws-card:hover,
   .doc-tile:hover {
-    transform: none;
-  }
-  .btn:hover .cta-arrow {
     transform: none;
   }
 }
 
 /* Selected keeps the accent border it already had — the fill must not be
    the thing that says "chosen", or selection and hover collide. */
-.brand-card[data-selected='true'],
-.model-option[data-selected='true'],
 .provider-tile[data-default='true'] {
   border-color: var(--accent-line);
   background: var(--accent-soft);

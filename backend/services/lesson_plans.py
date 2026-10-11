@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal, Optional, Sequence
 
-from sqlalchemy import ColumnElement, delete, or_, select, text
+from sqlalchemy import ColumnElement, delete, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.errors import NotFound
@@ -172,11 +172,16 @@ def _values(payload: LessonPlanInput, *, creating: bool) -> dict[str, Any]:
 
 
 async def create(db: AsyncSession, payload: LessonPlanInput, user_id: str) -> LessonPlan:
-    """The owner comes from the session, never from the body."""
+    """The owner comes from the session, never from the body.
+
+    No refresh after the flush: every column is either given here or has a
+    Python-side default, so the INSERT already knows the whole row, and its
+    RETURNING supplies the id. The refresh was a SELECT of what had just been
+    written — a round trip to another region for nothing.
+    """
     plan = LessonPlan(user_id=user_id, **_values(payload, creating=True))
     db.add(plan)
     await db.flush()
-    await db.refresh(plan)
     return plan
 
 
@@ -185,23 +190,22 @@ async def replace(
 ) -> LessonPlan:
     """Overwrite a document the caller may write, or 404.
 
-    The access check is the same statement as the write. It used to run as its
-    own SELECT with an identical WHERE clause, which is both a wasted round
-    trip and a window in which access could change between the two.
+    One statement: the access check is the UPDATE's own WHERE clause, and
+    RETURNING hands back the row as written. This runs on every autosave, and
+    it used to be three round trips — a SELECT to check access, the UPDATE, and
+    a SELECT to read the row back — each one 80–100ms to the database.
     """
     plan = (
         await db.execute(
-            select(LessonPlan).where(LessonPlan.id == plan_id, writable_by(user_id)).limit(1)
+            update(LessonPlan)
+            .where(LessonPlan.id == plan_id, writable_by(user_id))
+            .values(**_values(payload, creating=False), updated_at=datetime.utcnow())
+            .returning(LessonPlan)
+            .execution_options(synchronize_session=False, populate_existing=True)
         )
     ).scalar_one_or_none()
     if plan is None:
         raise NotFound("Lesson plan not found")
-
-    for column, value in _values(payload, creating=False).items():
-        setattr(plan, column, value)
-    plan.updated_at = datetime.utcnow()
-    await db.flush()
-    await db.refresh(plan)
     return plan
 
 

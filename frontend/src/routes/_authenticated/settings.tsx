@@ -17,6 +17,12 @@ const SECTIONS = [
 ] as const;
 
 export type SettingsSection = (typeof SECTIONS)[number]['id'];
+/**
+ * The section names alone, for `validateSearch`. Route options are not code
+ * split, so reading `SECTIONS` there pulled every pane — and through the
+ * models pane every provider logo — into the bundle every page loads.
+ */
+const SECTION_IDS: readonly string[] = ['profile', 'models', 'writing', 'appearance', 'account'] satisfies SettingsSection[];
 
 export interface SettingsSearch {
   section?: SettingsSection;
@@ -32,7 +38,7 @@ export interface SettingsSearch {
  */
 export const Route = createFileRoute('/_authenticated/settings')({
   validateSearch: (search: Record<string, unknown>): SettingsSearch => ({
-    section: SECTIONS.some(s => s.id === search.section) ? (search.section as SettingsSection) : undefined,
+    section: SECTION_IDS.includes(search.section as string) ? (search.section as SettingsSection) : undefined,
   }),
   component: SettingsPage,
 });

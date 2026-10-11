@@ -12,7 +12,7 @@ import { WritePanel } from './WritePanel';
 import { RefinePanel } from './RefinePanel';
 import { QueuePanel } from './QueuePanel';
 import { ContextPanel } from './ContextPanel';
-import { isActive, useAiJobs, type AiQueue, type Job } from './queue';
+import { isActive, useAiJobs, useSecondTick, type AiQueue, type Job } from './queue';
 import type { ContextShelf } from './shelf';
 
 export type AiTab = 'outline' | 'write' | 'refine' | 'context';
@@ -100,7 +100,6 @@ export function AiPanel({
   const [queueOpen, setQueueOpen] = useState(false);
   const [writeTarget, setWriteTarget] = useState<OutlineNode | null>(null);
   const [writeFocus, setWriteFocus] = useState(0);
-  const [, tick] = useState(0);
   const tabsRef = useRef<HTMLDivElement>(null);
 
   const setTab = useCallback((next: AiTab) => {
@@ -119,12 +118,7 @@ export function AiPanel({
   }, [request, setTab]);
 
   // The one-line summary counts down while something waits to retry.
-  const retrying = jobs.some(job => job.status === 'retrying');
-  useEffect(() => {
-    if (!retrying) return;
-    const id = window.setInterval(() => tick(n => n + 1), 1000);
-    return () => window.clearInterval(id);
-  }, [retrying]);
+  useSecondTick(jobs.some(job => job.status === 'retrying'));
 
   /** Tabs by keyboard: ←/→ move and select, Home/End jump — the tablist pattern. */
   const tabKeys = (event: React.KeyboardEvent) => {

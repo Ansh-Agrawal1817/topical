@@ -73,8 +73,9 @@ async def create_post(
         lesson_plan_name=lesson_plan_name,
     )
     db.add(post)
+    # Every column is given or has a Python-side default, so the flushed object
+    # is already complete — a refresh would only read back what was written.
     await db.flush()
-    await db.refresh(post)
     return post
 
 
@@ -92,12 +93,13 @@ async def cast_vote(db: AsyncSession, post_id: int, user_id: str, vote: int) -> 
 
     Voting the same way twice clears the vote; voting the other way switches
     it. Both counters are then adjusted by the difference between the old state
-    and the new one, in a single statement — this used to be a nested if/else
-    over six near-identical UPDATEs, one per transition, and the two "switch"
-    branches were the only ones that touched both columns.
-    """
-    await get_post(db, post_id)  # 404 before writing an orphaned vote
+    and the new one, in a single statement whose RETURNING is the post the
+    caller gets back — and whose empty result is the 404, so no vote is ever
+    written against a post that does not exist (the transaction rolls back).
 
+    Three round trips. It was seven: a SELECT for the 404, the vote lookup, the
+    vote write, the count UPDATE, then the same post selected and refreshed.
+    """
     existing = (
         await db.execute(
             select(PostVote).where(PostVote.post_id == post_id, PostVote.user_id == user_id).limit(1)
@@ -107,43 +109,52 @@ async def cast_vote(db: AsyncSession, post_id: int, user_id: str, vote: int) -> 
     before: VoteValue = existing.vote if existing else 0
     after: VoteValue = 0 if before == vote else vote
 
+    post = (
+        await db.execute(
+            update(Post)
+            .where(Post.id == post_id)
+            .values(
+                # GREATEST floors at zero: a count that drifted negative —
+                # which a half-applied vote in an older version could do —
+                # renders as "-1 upvotes".
+                upvotes=func.greatest(Post.upvotes + (_tally(after, 1) - _tally(before, 1)), 0),
+                downvotes=func.greatest(Post.downvotes + (_tally(after, -1) - _tally(before, -1)), 0),
+            )
+            .returning(Post)
+            .execution_options(synchronize_session=False, populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if post is None:
+        raise NotFound("Post not found")
+
     if after == 0 and existing is not None:
         await db.execute(delete(PostVote).where(PostVote.id == existing.id))
     elif existing is not None:
         existing.vote = after
     else:
         db.add(PostVote(post_id=post_id, user_id=user_id, vote=after))
-
-    await db.execute(
-        update(Post)
-        .where(Post.id == post_id)
-        .values(
-            # GREATEST floors at zero: a count that drifted negative — which a
-            # half-applied vote in the old branching version could do — renders
-            # as "-1 upvotes".
-            upvotes=func.greatest(Post.upvotes + (_tally(after, 1) - _tally(before, 1)), 0),
-            downvotes=func.greatest(Post.downvotes + (_tally(after, -1) - _tally(before, -1)), 0),
-        )
-    )
-    await db.flush()
-
-    post = await get_post(db, post_id)
-    await db.refresh(post)
     return post
 
 
 async def add_comment(db: AsyncSession, post_id: int, author: User, body: str) -> PostComment:
-    await get_post(db, post_id)  # same reason as voting
+    """The count goes up first, and its empty RETURNING is the 404 — one
+    statement where there were two, and no comment written to a missing post."""
+    counted = (
+        await db.execute(
+            update(Post)
+            .where(Post.id == post_id)
+            .values(comment_count=Post.comment_count + 1)
+            .returning(Post.id)
+        )
+    ).scalar_one_or_none()
+    if counted is None:
+        raise NotFound("Post not found")
 
     comment = PostComment(
         post_id=post_id, user_id=author.id, author_name=display_name(author), body=body
     )
     db.add(comment)
-    await db.execute(
-        update(Post).where(Post.id == post_id).values(comment_count=Post.comment_count + 1)
-    )
     await db.flush()
-    await db.refresh(comment)
     return comment
 
 

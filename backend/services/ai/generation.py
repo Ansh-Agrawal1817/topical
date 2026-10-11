@@ -8,7 +8,6 @@ service of its own, or the network hop that used to reach it.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
@@ -23,7 +22,7 @@ from ...schemas.ai import (
     SourcesRequest,
     TransformRequest,
 )
-from .crawl import crawl_for_topic, crawl_url, relevant_passages, search_sources
+from .crawl import crawl_for_topic, crawl_pages, relevant_passages, search_sources
 from .prompts import (
     outline_from_document_prompt,
     refine_outline_prompt,
@@ -232,8 +231,7 @@ async def _grounding(req: GenerateSectionRequest) -> str:
         return await crawl_for_topic(req.topic)
     if not req.urls:
         return ""
-    results = await asyncio.gather(*(crawl_url(url) for url in req.urls[:8]), return_exceptions=True)
-    pages = [r for r in results if isinstance(r, str) and r]
+    pages = [page for page in await crawl_pages(req.urls[:8]) if page]
     if not pages:
         return ""
     focus = " ".join([req.topic, *(req.ancestors or []), req.main_topic])

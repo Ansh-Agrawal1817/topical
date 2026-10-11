@@ -201,8 +201,3 @@ export function actionsFor(format: DocFormat): EditorAction[] {
 export function actionById(format: DocFormat, id: string): EditorAction | undefined {
   return actionsFor(format).find(a => a.id === id);
 }
-
-/** The action bound to a ⌘/Ctrl chord, if any. */
-export function actionForChord(format: DocFormat, key: string, shift: boolean): EditorAction | undefined {
-  return actionsFor(format).find(a => a.key === key.toLowerCase() && Boolean(a.shift) === shift);
-}

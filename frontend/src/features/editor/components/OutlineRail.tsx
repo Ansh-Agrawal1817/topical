@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ListTree, PanelLeftClose, Plus, Sparkles } from 'lucide-react';
 import { Button, IconButton, Progress, Spinner } from '@/components/ui';
 import type { OutlineNode } from '../lib/outline';
@@ -7,7 +7,7 @@ import { MAX_OUTLINE_WIDTH, MIN_OUTLINE_WIDTH } from '../lib/viewOptions';
 import { useDragResize } from '../hooks/useDragResize';
 import { useOutlineRows } from '../hooks/useOutlineRows';
 import type { SectionWriter } from '../hooks/useSectionWriter';
-import { OutlineRow } from './OutlineRow';
+import { OutlineRow, type RowAct } from './OutlineRow';
 import type { AiFocus } from '../ai/AiPanel';
 
 interface Props {
@@ -174,9 +174,6 @@ export const OutlineRail = memo(function OutlineRail({
 
   const addAtEnd = () => rows.addAfter(nodes[nodes.length - 1] ?? null);
 
-  /** Every row gesture points the document at the row it is acting on. */
-  const touching = (node: OutlineNode, run: () => void) => () => { onFocusSection(node); run(); };
-
   /** The sibling a row would move past, above (-1) or below (1). */
   const neighbourOf = (index: number, step: -1 | 1) => {
     const entry = tree.entries[index];
@@ -189,6 +186,41 @@ export const OutlineRail = memo(function OutlineRail({
     onFocusSection(node);
     onMoveHeading(node.offset, nodes[neighbour].offset, step === -1 ? 'top' : 'bottom');
   };
+
+  /*
+   * One stable handler for every row's every gesture. A row passes its key;
+   * the heading it means is looked up here, now — not captured when the row
+   * last rendered, since rows skip renders and a captured offset goes stale
+   * with the first character typed above it.
+   */
+  const latest = useRef({ nodes, rowKeys, rows, rowKeyDown, moveRow, onJump, onFocusSection, onOpenAi, onShiftHeading });
+  latest.current = { nodes, rowKeys, rows, rowKeyDown, moveRow, onJump, onFocusSection, onOpenAi, onShiftHeading };
+  const act = useCallback<RowAct>((key, action) => {
+    const L = latest.current;
+    const index = L.rowKeys.indexOf(key);
+    const node = L.nodes[index];
+    if (!node) return;
+    const touch = (run: () => void) => { L.onFocusSection(node); run(); };
+    switch (action.type) {
+      case 'jump': return touch(() => L.onJump(node));
+      case 'edit': return touch(() => L.rows.startEdit(node));
+      case 'commit': return L.rows.commitEdit();
+      case 'value': return L.rows.setEditValue(action.value);
+      case 'editKey': return L.rows.editKeys(node)(action.event);
+      case 'rowKey': return L.rowKeyDown(node, index)(action.event);
+      case 'write': return touch(() => L.onOpenAi('write', node));
+      case 'add': return touch(() => L.rows.addAfter(node));
+      case 'delete': return L.rows.deleteRow(node);
+      case 'indent': return touch(() => L.onShiftHeading(node.offset, 1));
+      case 'outdent': return touch(() => L.onShiftHeading(node.offset, -1));
+      case 'up': return L.moveRow(node, index, -1);
+      case 'down': return L.moveRow(node, index, 1);
+      case 'dragStart': return L.rows.rowDragStart(node)(action.event);
+      case 'dragOver': return L.rows.rowDragOver(node)(action.event);
+      case 'drop': L.onFocusSection(null); return L.rows.rowDrop(node)(action.event);
+      case 'dragEnd': return L.rows.endDrag();
+    }
+  }, []);
 
   return (
     /* As a drawer the rail sizes itself from the viewport, so the stored width
@@ -243,8 +275,8 @@ export const OutlineRail = memo(function OutlineRail({
             <OutlineRow
               key={rowKeys[index]}
               rowKey={rowKeys[index]}
-              onRowKeyDown={rowKeyDown(node, index)}
-              item={{ id: node.id, title: node.label, level: node.level }}
+              title={node.label}
+              level={node.level}
               status={writer.status[node.offset]}
               words={wordsOf(node)}
               // Identity is the node, never its text. Comparing titles lit up
@@ -254,25 +286,10 @@ export const OutlineRail = memo(function OutlineRail({
               canMoveUp={neighbourOf(index, -1) !== undefined}
               canMoveDown={neighbourOf(index, 1) !== undefined}
               editing={rows.editingOffset === node.offset}
-              value={rows.editValue}
-              onValue={rows.setEditValue}
-              onEdit={touching(node, () => rows.startEdit(node))}
-              onCommit={rows.commitEdit}
-              onKeyDown={rows.editKeys(node)}
-              onPrimary={touching(node, () => onJump(node))}
-              onWrite={touching(node, () => onOpenAi('write', node))}
-              onIndent={touching(node, () => onShiftHeading(node.offset, 1))}
-              onOutdent={touching(node, () => onShiftHeading(node.offset, -1))}
-              onMoveUp={() => moveRow(node, index, -1)}
-              onMoveDown={() => moveRow(node, index, 1)}
-              onAddAfter={touching(node, () => rows.addAfter(node))}
-              onDelete={() => rows.deleteRow(node)}
+              value={rows.editingOffset === node.offset ? rows.editValue : ''}
               dragging={rows.dragOffset === node.offset}
               dropEdge={rows.dropAt?.offset === node.offset ? rows.dropAt.edge : null}
-              onDragStart={rows.rowDragStart(node)}
-              onDragOver={rows.rowDragOver(node)}
-              onDrop={event => { onFocusSection(null); rows.rowDrop(node)(event); }}
-              onDragEnd={rows.endDrag}
+              act={act}
             />
           ))}
           {/* Adding belongs at the end of the list: it appends *there*. */}

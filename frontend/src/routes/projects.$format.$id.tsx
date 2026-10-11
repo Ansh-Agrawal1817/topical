@@ -59,6 +59,10 @@ function DocumentPage() {
     // Switching between reading and writing re-runs this query's component;
     // without a stale window that would be a refetch on every mode change.
     staleTime: 30_000,
+    // The editor seeds its own state from the first answer and never reads a
+    // later one (`useDocument`), so refetching on every return to the tab
+    // downloaded the whole document again for nothing.
+    refetchOnWindowFocus: false,
   });
 
   const plan = data?.plan;

@@ -558,33 +558,6 @@ export async function searchUsername(query: string): Promise<UsernameMatch[]> {
   }
 }
 
-/** Only what an attribution line needs. */
-export interface Byline {
-  id: string;
-  given_name?: string | null;
-  family_name?: string | null;
-  username?: string | null;
-  avatar_url?: string | null;
-}
-
-async function getUserById(id: string): Promise<Byline | null> {
-  try {
-    const data = await json<{ user: Byline }>(`/user/${encodeURIComponent(id)}`, {
-      failure: "Failed to fetch user",
-    });
-    return data.user ?? null;
-  } catch {
-    return null;
-  }
-}
-
-export const userByIdQueryOptions = (id: string) => queryOptions({
-  queryKey: ["user", id],
-  queryFn: () => getUserById(id),
-  staleTime: 1000 * 60 * 60,
-  enabled: !!id,
-});
-
 // ── People / public profiles ─────────────────────────────────────────────
 export interface Person {
   id: string;

@@ -58,17 +58,6 @@ function countLines(doc: string, upTo: number): number {
   return n;
 }
 
-/** Offset of the start of a zero-based line number. */
-export function offsetOfLine(doc: string, line: number): number {
-  let offset = 0;
-  for (let i = 0; i < line; i++) {
-    const nl = doc.indexOf('\n', offset);
-    if (nl === -1) return doc.length;
-    offset = nl + 1;
-  }
-  return offset;
-}
-
 /** 1-based line and column for a caret offset — for the status bar. */
 export function caretPosition(doc: string, index: number): { line: number; column: number } {
   const line = lineAt(doc, index);

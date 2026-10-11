@@ -6,6 +6,10 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- Here rather than as an @import in index.css: from there the browser only
+       found it after downloading and parsing the app's whole stylesheet, so
+       every font waited on that first. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
   <title>Topical — all you need is a topic</title>
   <meta name="description" content="Topical is a writing environment where you and an AI work the same document at once. It researches, drafts, cites and checks; you steer, judge and decide. Every claim traced to its source; Markdown, MDX and LaTeX." />

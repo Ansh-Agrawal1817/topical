@@ -17,10 +17,6 @@ from ..core.validation import MAX_BIO_LENGTH, USERNAME_PATTERN, USERNAME_RULE
 from ..db.models import LessonPlan, User
 
 
-async def by_id(db: AsyncSession, user_id: str) -> Optional[User]:
-    return (await db.execute(select(User).where(User.id == user_id).limit(1))).scalar_one_or_none()
-
-
 async def by_username(db: AsyncSession, username: str) -> Optional[User]:
     return (
         await db.execute(select(User).where(User.username == username).limit(1))

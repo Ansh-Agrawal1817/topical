@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from typing import AsyncIterator, Optional
 
+from fastapi import Request
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -25,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 engine: Optional[AsyncEngine] = None
 session_factory: Optional[async_sessionmaker[AsyncSession]] = None
+#: Sessions for requests that only read. See ``get_session``.
+read_session_factory: Optional[async_sessionmaker[AsyncSession]] = None
 
 if settings.async_database_url:
     engine = create_async_engine(
@@ -46,23 +49,38 @@ if settings.async_database_url:
         echo=False,
     )
     session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    read_session_factory = async_sessionmaker(
+        engine.execution_options(isolation_level="AUTOCOMMIT"),
+        expire_on_commit=False,
+        class_=AsyncSession,
+    )
+
+#: Methods whose handlers only read. Their one possible write — the session
+#: refresh in ``auth.session`` — is a single statement either way.
+_READ_METHODS = frozenset({"GET", "HEAD"})
 
 
 def is_configured() -> bool:
     return session_factory is not None
 
 
-async def get_session() -> AsyncIterator[AsyncSession]:
+async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """One session per request, committed on success and rolled back on failure.
 
     The commit lives here rather than in each service so a handler that writes
     two rows either writes both or neither — the old backend issued each
     statement on its own and could leave a comment counted but not stored.
+
+    A read gets no transaction at all. Wrapping one SELECT in BEGIN … COMMIT
+    is two extra network round trips, and against a database in another region
+    that measured 259ms for a one-query request against 84ms without — every
+    page load paid it, for an atomicity guarantee a read does not need.
     """
-    if session_factory is None:
+    if session_factory is None or read_session_factory is None:
         raise ServiceUnavailable("Database is not configured. Set DATABASE_URL in .env")
 
-    async with session_factory() as session:
+    factory = read_session_factory if request.method in _READ_METHODS else session_factory
+    async with factory() as session:
         try:
             yield session
             await session.commit()

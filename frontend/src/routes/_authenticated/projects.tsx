@@ -15,6 +15,7 @@ import { getLessonPlans, deleteLessonPlan, saveLessonPlan, LessonPlanResponse } 
 import { createDocument } from '@/lib/newDocument';
 import { documentRoute } from '@/lib/documentUrl';
 import { formatDate } from '@/lib/format';
+import { whenIdle } from '@/lib/idle';
 import type { DocFormat } from '@/lib/types';
 import { Plus, FolderOpen, LayoutGrid, List } from 'lucide-react';
 import { ContinueCard, WorkspaceCard } from '@/components/projects/WorkspaceCard';
@@ -44,14 +45,7 @@ function ProjectsPage() {
    * their list, and opening one does not wait on a download.
    */
   useEffect(() => {
-    const warm = () => { void router.loadRouteChunk(router.routesById['/projects/$format/$id']); };
-    // Safari has no requestIdleCallback; a short delay does the same job there.
-    if (typeof window.requestIdleCallback === 'function') {
-      const id = window.requestIdleCallback(warm, { timeout: 2000 });
-      return () => window.cancelIdleCallback(id);
-    }
-    const id = setTimeout(warm, 600);
-    return () => clearTimeout(id);
+    return whenIdle(() => { void router.loadRouteChunk(router.routesById['/projects/$format/$id']); }, 2000, 600);
   }, [router]);
 
   const [isCreating, setIsCreating] = useState(false);

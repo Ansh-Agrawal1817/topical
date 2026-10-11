@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 # `core.config` reads (and loads) the environment at import, so it comes first.
 from .core.config import settings
@@ -67,6 +68,12 @@ def create_app() -> FastAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+
+    # Documents travel whole — a workspace listing carries the full text of
+    # every document — and in production the same process serves the
+    # JavaScript bundles. Both went out uncompressed; prose and minified code
+    # compress four- to six-fold. Websocket frames are not touched.
+    app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
     register_exception_handlers(app)
 

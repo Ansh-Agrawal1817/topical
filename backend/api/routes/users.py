@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from ...core.errors import NotFound
 from ...schemas.user import (
-    Byline,
     PersonProfile,
     ProfileUpdate,
     PublicUser,
@@ -46,26 +44,6 @@ async def update_profile(payload: ProfileUpdate, db: Db, user: CurrentUser) -> d
             "bio": updated.bio,
             "avatarUrl": updated.avatar_url,
         },
-    }
-
-
-@router.get("/user/{user_id}")
-async def user_by_id(user_id: str, db: Db) -> dict:
-    """One user, for attribution on someone else's work.
-
-    Only what a byline needs — no email, no bio, and certainly no session.
-    """
-    user = await users_service.by_id(db, user_id)
-    if user is None:
-        raise NotFound("User not found")
-    return {
-        "user": Byline(
-            id=user.id,
-            given_name=user.given_name,
-            family_name=user.family_name,
-            username=user.username,
-            avatar_url=user.avatar_url,
-        )
     }
 
 

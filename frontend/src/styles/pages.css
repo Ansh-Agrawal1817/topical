@@ -340,43 +340,7 @@ textarea:focus-visible {
   color: var(--ink);
 }
 
-/* ── Hero ──
-   The page's whole argument, in one screen: a claim, the field the claim is
-   about, and the document that field produces.
-
-   What was here before set the word "Topical" at `clamp(3rem, 8vw, 5.5rem)`
-   — the largest type on the page spent repeating the name already in the nav
-   bar — over a lede, a sub-lede and two buttons, and only then showed the
-   product. The name is now the nav's job and the headline makes the promise
-   the product is named for. */
-.hero {
-  position: relative;
-  padding: clamp(3.5rem, 9vw, 6rem) var(--gutter) 0;
-  text-align: center;
-}
-.hero-inner {
-  position: relative;
-  z-index: 1;
-  max-width: 64rem;
-  margin-inline: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-.hero-title {
-  font-family: var(--font-serif);
-  font-size: var(--text-display);
-  font-weight: 600;
-  /* 0.95 was set for a grotesque with almost no descender. A serif hangs its
-     `g` and `y` well below the baseline, and lines that tight interlock. */
-  line-height: 1.06;
-  letter-spacing: -0.022em;
-  font-optical-sizing: auto;
-  color: var(--ink);
-  text-wrap: balance;
-  max-width: 13ch;
-}
+/* ── Hero ── */
 /* The two words the sentence turns on. Newsreader has a real italic, so the
    emphasis can be typographic rather than a second colour — the accent is
    the product's "this is actionable" signal and spending it on a headline
@@ -407,15 +371,6 @@ textarea:focus-visible {
 @keyframes hero-underline {
   to { clip-path: inset(0 0 0 0); }
 }
-.hero-sub {
-  margin-top: 1.15rem;
-  font-size: var(--text-md);
-  line-height: 1.6;
-  color: var(--ink-muted);
-  max-width: 34rem;
-  text-wrap: pretty;
-}
-
 /* ── The topic bar ──
    The one control the whole page is about, so it is built like a control and
    not like a picture of one: a real input, a real submit, and a demonstration
@@ -453,10 +408,7 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
 }
-.topic-input,
-.topic-ghost {
-  /* Both layers must set type identically or the handover from the
-     demonstration to the visitor moves the text by a pixel. */
+.topic-input {
   font-family: var(--font-serif);
   font-size: clamp(1.0625rem, 2.4vw, 1.375rem);
   font-weight: 400;
@@ -469,31 +421,6 @@ textarea:focus-visible {
 .topic-input::placeholder {
   color: var(--ink-faint);
   opacity: 1;
-}
-.topic-ghost {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  pointer-events: none;
-  color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-}
-/* The caret is 1.5px of accent rather than a text cursor: at this size a
-   1px hairline disappears against a serif's stems. */
-.topic-caret {
-  display: inline-block;
-  width: 1.5px;
-  height: 1.15em;
-  margin-left: 2px;
-  border-radius: 1px;
-  background: var(--accent-400);
-  animation: caret-blink var(--dur-caret) steps(1) infinite;
-}
-@keyframes caret-blink {
-  0%, 50% { opacity: 1; }
-  50.01%, 100% { opacity: 0; }
 }
 /* Placement inside the topic bar; the switch itself is a Segmented. */
 .topic-format { flex-shrink: 0; align-self: center; }
@@ -524,14 +451,6 @@ textarea:focus-visible {
   justify-content: space-between;
   gap: 1rem;
 }
-.footer-link {
-  font-size: var(--text-xs);
-  color: var(--ink-faint);
-  text-decoration: none;
-  transition: color var(--dur-fast) var(--ease-out);
-}
-.footer-link:hover { color: var(--ink-2); }
-
 /* ── The lockup ──
    The asterism and the name (components/BrandMark.tsx). One number, --mark,
    drives the glyph, the word and the gap between them: sizing the glyph
@@ -958,56 +877,7 @@ a:active > .brand-lockup { transform: scale(0.97); }
    meant to use immediately, rather than on top of a section of content. */
 .page-head--tight { margin-bottom: 1.25rem; }
 
-/* ── Identity, inside the account card ──
-   What the banner used to carry, at the size the rest of the card is set in.
-   The avatar keeps the seeded hue: it is the one thing on this page that is
-   allowed to change colour per account, because it is the one thing whose job
-   is telling people apart. */
-.account-identity {
-  display: flex;
-  align-items: center;
-  gap: 0.9rem;
-  padding-bottom: 1rem;
-  margin-bottom: 0.25rem;
-  border-bottom: 1px solid var(--line-soft);
-}
-.account-identity-name {
-  font-family: var(--font-serif);
-  font-size: var(--text-md);
-  font-weight: 600;
-  letter-spacing: -0.012em;
-  font-optical-sizing: auto;
-  color: var(--ink);
-}
-.account-identity-bio {
-  margin-top: 0.15rem;
-  font-size: var(--text-sm);
-  line-height: 1.5;
-  color: var(--ink-muted);
-}
-
-/* ── A labelled fact ──
-   Label and value on one baseline rather than a caption stacked over its own
-   content. The stacked form gave every fact two lines and a 10.5px uppercase
-   header, so four short values filled a card and the labels — which nobody
-   reads twice — were as tall as the answers. */
-.detail-row {
-  display: flex;
-  align-items: baseline;
-  gap: 1rem;
-}
-.detail-label {
-  flex-shrink: 0;
-  width: 5.5rem;
-  font-size: var(--text-xs);
-  color: var(--ink-faint);
-}
-.detail-value {
-  min-width: 0;
-  font-size: var(--text-sm);
-  color: var(--ink-2);
-  overflow-wrap: anywhere;
-}
+/* A fact with no value yet (`DetailEmpty`). */
 .detail-empty {
   color: var(--ink-ghost);
   font-style: italic;
@@ -1063,20 +933,6 @@ a:active > .brand-lockup { transform: scale(0.97); }
   font-size: 11px;
   color: var(--ink-faint);
 }
-/* ═══════════════════════════════════════════════════════════════════════
-   AI generation panel — outline as workflow
-   ═══════════════════════════════════════════════════════════════════════ */
-
-.topic-count {
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  padding: 1px 6px;
-  border-radius: var(--radius-pill);
-  background: var(--ink-a04);
-  color: var(--ink-faint);
-}
-
 /* ── Editor status bar ──
    Save state used to be a button in the header; writers want continuous, ambient feedback instead (length, reading time, sync). */
 .editor-status {
@@ -1110,149 +966,6 @@ a:active > .brand-lockup { transform: scale(0.97); }
 @keyframes status-pulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .editor-status-dot { animation: none; } }
 .editor-status-dot[data-state='offline'] { background: var(--ink-a12); box-shadow: none; }
-
-/* ═══════════════════════════════════════════════════════════════════════
-   AI provider setup screen
-   ═══════════════════════════════════════════════════════════════════════ */
-
-/* Numbered steps down the page */
-.setup-step { display: flex; gap: 14px; }
-.setup-rail { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
-.setup-num {
-  height: 26px; width: 26px;
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-serif);
-  font-size: 11px; font-weight: 700;
-  color: var(--ink-faint);
-  background: var(--ink-a04);
-  border: 1px solid var(--line);
-  transition-property: var(--transition-control);
-  transition-duration: var(--dur-base);
-  transition-timing-function: var(--ease-out);
-}
-.setup-step[data-done='true'] .setup-num {
-  color: var(--accent-ink);
-  background: var(--accent-400);
-  border-color: var(--accent-400);
-}
-/* Connector line between steps */
-.setup-line {
-  flex: 1;
-  width: 1px;
-  min-height: 18px;
-  background: var(--ink-a06);
-  margin: 6px 0;
-}
-.setup-step[data-done='true'] .setup-line { background: var(--accent-line); }
-.setup-body { flex: 1; min-width: 0; padding-bottom: 1.75rem; }
-.setup-label {
-  font-size: 13px; font-weight: 600;
-  color: var(--ink-2);
-  margin-bottom: 0.15rem;
-}
-.setup-hint { font-size: 12px; color: var(--ink-faint); margin-bottom: 0.85rem; }
-
-/* ── Provider brand cards ── */
-.brand-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
-  gap: 9px;
-}
-.brand-card {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 13px;
-  border-radius: var(--radius-md);
-  text-align: left;
-  border: 1px solid var(--line);
-  background: var(--ink-a02);
-  transition-property: var(--transition-control);
-  transition-duration: var(--dur-base);
-  transition-timing-function: var(--ease-out);
-}
-.brand-card:hover {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--brand) 40%, transparent);
-  background: color-mix(in srgb, var(--brand) 7%, transparent);
-}
-.brand-card[data-selected='true'] {
-  border-color: color-mix(in srgb, var(--brand) 60%, transparent);
-  background:
-    linear-gradient(120deg, color-mix(in srgb, var(--brand) 16%, transparent), transparent 70%),
-    var(--ink-a02);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand) 30%, transparent);
-}
-.brand-card-mark {
-  height: 32px; width: 32px;
-  border-radius: var(--radius);
-  display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-serif);
-  font-size: 13px; font-weight: 600;
-  color: var(--brand);
-  background: color-mix(in srgb, var(--brand) 15%, transparent);
-  border: 1px solid color-mix(in srgb, var(--brand) 34%, transparent);
-  flex-shrink: 0;
-}
-.brand-card-check {
-  position: absolute;
-  top: 8px; right: 8px;
-  height: 15px; width: 15px;
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  background: var(--brand);
-  color: var(--accent-ink);
-}
-
-/* ── Model options ── */
-.model-list { display: flex; flex-direction: column; gap: 6px; }
-.model-option {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 12px;
-  border-radius: var(--radius);
-  text-align: left;
-  font-size: 12.5px;
-  border: 1px solid var(--line-soft);
-  background: var(--ink-a02);
-  color: var(--ink-muted);
-  transition-property: var(--transition-control);
-  transition-duration: var(--dur-fast);
-  transition-timing-function: var(--ease-out);
-}
-.model-option:hover { color: var(--ink); border-color: var(--line); }
-.model-option[data-selected='true'] {
-  color: var(--accent-500);
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-}
-.model-radio {
-  height: 13px; width: 13px; border-radius: 50%;
-  border: 1px solid var(--line-strong);
-  flex-shrink: 0;
-  transition-property: var(--transition-control);
-  transition-duration: var(--dur-fast);
-  transition-timing-function: var(--ease-out);
-}
-.model-option[data-selected='true'] .model-radio {
-  border-color: var(--accent-400);
-  background: var(--accent-400);
-  box-shadow: inset 0 0 0 2.5px var(--bg);
-}
-.model-name { font-family: var(--font-mono); }
-
-/* Reassurance about where the key goes */
-.key-note {
-  display: flex; gap: 9px;
-  padding: 11px 13px;
-  border-radius: var(--radius-md);
-  font-size: 11.5px;
-  line-height: 1.55;
-  color: var(--ink-faint);
-  background: var(--ink-a02);
-  border: 1px solid var(--line-soft);
-}
 
 /* ═══════════════════════════════════════════════════════════════════════
    People directory & public profiles

@@ -74,11 +74,9 @@
    enough for the panel's own text to read. */
 .nav-glass,
 .cmdk-panel,
-.post-detail-panel,
 .new-post-dialog,
 .dialog-glass,
-.pdf-dialog,
-.mobile-menu-overlay {
+.pdf-dialog {
   background: var(--glass-tint-strong);
   -webkit-backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturate));
   backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturate));
@@ -97,7 +95,6 @@
    `sm:rounded-lg` on its dialog content, which resolves through Tailwind to
    the *control* radius — a modal with a button's corners. */
 .cmdk-panel,
-.post-detail-panel,
 .new-post-dialog,
 .dialog-glass {
   border-radius: var(--radius-xl);
@@ -151,7 +148,6 @@
 .glass-card,
 .auth-panel,
 .cmdk-panel,
-.post-detail-panel,
 .new-post-dialog,
 .dialog-glass,
 .pdf-dialog,
@@ -169,7 +165,6 @@
 .chip,
 .btn,
 .icon-btn,
-.model-option,
 .pub-row,
 .segmented,
 .nav-indicator,
@@ -189,8 +184,7 @@
 
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   .liquid-glass,
-  .nav-glass, .cmdk-panel, .post-detail-panel, .new-post-dialog,
-  .dialog-glass, .mobile-menu-overlay,
+  .nav-glass, .cmdk-panel, .new-post-dialog, .dialog-glass,
   .editor-header, .editor-toolbar, .editor-status {
     background: var(--surface);
     border-color: var(--line);
@@ -201,8 +195,7 @@
    The OS setting for it exists; honour it. */
 @media (prefers-reduced-transparency: reduce) {
   .liquid-glass,
-  .nav-glass, .cmdk-panel, .post-detail-panel, .new-post-dialog,
-  .dialog-glass, .mobile-menu-overlay,
+  .nav-glass, .cmdk-panel, .new-post-dialog, .dialog-glass,
   .editor-header, .editor-toolbar, .editor-status,
   .outline-rail {
     background: var(--surface);

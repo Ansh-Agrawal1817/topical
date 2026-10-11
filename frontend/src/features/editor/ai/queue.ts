@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { ApiError } from '@/lib/api';
 import { isAiKeyDeclined } from '@/lib/aiKeyGate';
 import { errorMessage } from '@/lib/utils';
@@ -209,3 +209,13 @@ export function useAiJobs(queue: AiQueue): Job[] {
 }
 
 export const isActive = (job: Job) => job.status === 'queued' || job.status === 'running' || job.status === 'retrying';
+
+/** Re-render once a second while `active` — for the retry countdowns. */
+export function useSecondTick(active: boolean) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = window.setInterval(() => setTick(n => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [active]);
+}

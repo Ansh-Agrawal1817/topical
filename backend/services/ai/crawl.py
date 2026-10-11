@@ -31,8 +31,6 @@ logger = logging.getLogger(__name__)
 
 #: Per-page cap. Enough for a long article, short of blowing the context window.
 MAX_PAGE_CHARS = 15_000
-#: Cap on a whole multi-page batch, which is concatenated into one prompt.
-MAX_BATCH_CHARS = 20_000
 #: Below this, a "successful" fetch is a cookie wall or an error page.
 MIN_USEFUL_CHARS = 200
 
@@ -59,40 +57,65 @@ _PAGE_TTL_SECONDS = 30 * 60
 
 
 async def crawl_url(url: str) -> Optional[str]:
-    """Readable text from a URL, from the cache when it was read recently."""
-    hit = _PAGE_CACHE.get(url)
-    if hit and time.monotonic() - hit[0] < _PAGE_TTL_SECONDS:
-        return hit[1]
-    text = await _crawl_url(url)
-    if text:
-        if len(_PAGE_CACHE) > 200:
-            _PAGE_CACHE.clear()
-        _PAGE_CACHE[url] = (time.monotonic(), text)
-    return text
+    """Readable text from one URL, or None if it cannot be read."""
+    return (await crawl_pages([url]))[0]
 
 
-async def _crawl_url(url: str) -> Optional[str]:
-    """Extract readable text from a URL, or None if it cannot be read.
+async def crawl_pages(urls: List[str]) -> List[Optional[str]]:
+    """Readable text from each URL, in order — None where a page could not be read.
+
+    Recently read pages come from the cache. The rest share one browser: each
+    used to be fetched with an ``AsyncWebCrawler`` of its own, so a section
+    grounded in five pages started five headless Chromiums at once — seconds of
+    startup apiece, and on a 1GB machine the difference between a slow request
+    and an out-of-memory kill.
+    """
+    now = time.monotonic()
+    texts: Dict[str, Optional[str]] = {}
+    for url in urls:
+        hit = _PAGE_CACHE.get(url)
+        if hit and now - hit[0] < _PAGE_TTL_SECONDS:
+            texts[url] = hit[1]
+    missing = [url for url in dict.fromkeys(urls) if url not in texts]
+    if missing:
+        for url, text in zip(missing, await _crawl_many(missing)):
+            texts[url] = text
+            if text:
+                if len(_PAGE_CACHE) > 200:
+                    _PAGE_CACHE.clear()
+                _PAGE_CACHE[url] = (time.monotonic(), text)
+    return [texts.get(url) for url in urls]
+
+
+async def _crawl_many(urls: List[str]) -> List[Optional[str]]:
+    """Render each page in one shared browser; plain-fetch whatever that misses.
 
     crawl4ai renders the page in a real browser, which is the only way to get
     anything useful out of a client-rendered site. When it is unavailable or
-    fails, the plain fetch below still handles the server-rendered majority.
+    fails, the plain fetch still handles the server-rendered majority.
     """
+    rendered: List[Optional[str]] = [None] * len(urls)
     try:
         from crawl4ai import AsyncWebCrawler
 
         async with AsyncWebCrawler() as crawler:
-            result = await crawler.arun(url=url)
-            if result and result.markdown:
-                return result.markdown[:MAX_PAGE_CHARS]
-            return None
+            results = await asyncio.gather(*(crawler.arun(url=url) for url in urls), return_exceptions=True)
+        for i, result in enumerate(results):
+            if isinstance(result, BaseException):
+                logger.warning("crawl4ai failed for %s (%s); falling back", urls[i], result)
+            elif result and result.markdown:
+                rendered[i] = result.markdown[:MAX_PAGE_CHARS]
     except (ImportError, TypeError):
         # crawl4ai unavailable (e.g. Python < 3.10) — degrade, don't fail.
         logger.warning("crawl4ai not available; falling back to a plain fetch")
     except Exception as exc:
-        logger.warning("crawl4ai failed for %s (%s); falling back", url, exc)
+        logger.warning("crawl4ai failed (%s); falling back to a plain fetch", exc)
 
-    return await asyncio.to_thread(_fetch_text, url)
+    misses = [i for i, text in enumerate(rendered) if text is None]
+    fetched = await asyncio.gather(*(asyncio.to_thread(_fetch_text, urls[i]) for i in misses))
+    for i, text in zip(misses, fetched):
+        rendered[i] = text
+    return rendered
 
 
 def _fetch_text(url: str) -> Optional[str]:
@@ -178,21 +201,6 @@ def _wikipedia_summary(slug: str, topic: str) -> Optional[str]:
 
     extract = data.get("extract")
     return f"# {data.get('title', topic)}\n\n{extract}" if extract else None
-
-
-# ---------------------------------------------------------------------------
-# Several pages
-# ---------------------------------------------------------------------------
-async def crawl_urls(urls: List[str]) -> str:
-    """Read every URL concurrently and join whatever came back.
-
-    One unreachable page does not sink the batch: `return_exceptions` keeps the
-    others, and the writer gets a section grounded in the sources that did
-    load rather than an error naming the one that did not.
-    """
-    results = await asyncio.gather(*(crawl_url(url) for url in urls), return_exceptions=True)
-    pages = [r for r in results if isinstance(r, str) and r]
-    return "\n\n---\n\n".join(pages)[:MAX_BATCH_CHARS]
 
 
 # ---------------------------------------------------------------------------

@@ -34,19 +34,13 @@
 
 /* Body copy over the sky carries a faint halo, for where a star sits behind
    a word — but not anything with a ground of its own. */
-.cosmos-page :is(.band, .arrival-stage) {
+.cosmos-page .band {
   text-shadow: 0 0 2px var(--cosmos-ground), 0 0 10px var(--cosmos-ground);
 }
-.cosmos-page :is(.band, .arrival-stage) .btn { text-shadow: none; }
+.cosmos-page .band .btn { text-shadow: none; }
 
 /* ── Arrival ──
    The about page's closing call to action, over the sky. */
-.arrival-stage {
-  display: flex;
-  justify-content: center;
-  min-height: 108vh;
-  padding: clamp(5rem, 12vh, 8rem) var(--gutter) 3rem;
-}
 .arrival {
   display: flex;
   flex-direction: column;

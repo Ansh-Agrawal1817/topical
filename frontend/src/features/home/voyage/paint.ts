@@ -94,9 +94,3 @@ export function streak(g: CanvasRenderingContext2D, from: Pt, head: Pt, length: 
   line(g, tail[0], tail[1], head[0], head[1])
   g.restore()
 }
-
-/** An expanding ring that fades as it goes: something waiting, or something arriving. */
-export function ripple(g: CanvasRenderingContext2D, x: number, y: number, r: number, grow: number, f: number, alpha: number) {
-  g.globalAlpha = alpha * (1 - f)
-  circle(g, x, y, r + f * grow)
-}

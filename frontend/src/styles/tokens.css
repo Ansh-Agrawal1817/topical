@@ -846,21 +846,6 @@ code.hljs { padding: 3px 5px; }
   opacity: 0;
 }
 
-/* ─── Controls ───
-   Buttons, inputs and the rest of the control set live in `buttons.css`,
-   which loads last. They were declared here as blurred glass chips and
-   then re-declared there, so every control in the app carried two
-   materials at once and whichever file happened to load later won.
-   One definition, one place. What stays here is the arrow geometry the
-   landing CTA composes with. */
-.cta-arrow {
-  display: inline-flex;
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-.btn:hover .cta-arrow { transform: translateX(2px); }
-.cta-arrow-animated { transition: transform var(--dur-fast) var(--ease-out); }
-
-
 /* ─── Scrollbar ───
    Warm ink rather than a coloured accent: a scrollbar is furniture, and
    accenting it spends the one saturated hue on something nobody clicks. */
@@ -888,11 +873,6 @@ code.hljs { padding: 3px 5px; }
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--ink-a12) transparent;
-}
-
-/* ─── Mobile menu ─── */
-.mobile-menu-overlay {
-  background: var(--bg);
 }
 
 

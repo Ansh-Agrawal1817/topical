@@ -14,7 +14,7 @@ import {
 } from "@tanstack/react-router";
 import { Avatar, Button, Divider, IconButton, Kbd, Toaster, Row, Stack } from '@/components/ui';
 import { OnboardingModal } from "@/components/OnboardingModal";
-import { AiKeyDialog } from "@/components/AiKeyDialog";
+import { AiKeyHost } from "@/components/AiKeyHost";
 import { ConfirmHost } from "@/components/ConfirmHost";
 import { type QueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -234,7 +234,7 @@ function Root() {
         isAuthenticated={isAuthenticated}
       />
       <OnboardingModal />
-      <AiKeyDialog />
+      <AiKeyHost />
       <ConfirmHost />
       <main className={`flex-1 w-full mx-auto relative z-10 ${isEditorRoute ? 'min-h-0' : `px-4 py-6 mt-20 md:mt-24 ${isMarketing ? '' : 'max-md:pb-28'}`}`}>
         <Outlet />

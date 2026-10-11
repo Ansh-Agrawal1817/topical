@@ -21,6 +21,16 @@ from .core.errors import error_response
 logger = logging.getLogger(__name__)
 
 
+class ImmutableFiles(StaticFiles):
+    """Static files whose names change when their contents do."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 def mount_frontend(app: FastAPI, dist: Path) -> None:
     index = dist / "index.html"
     if not index.is_file():
@@ -31,10 +41,12 @@ def mount_frontend(app: FastAPI, dist: Path) -> None:
         )
         return
 
-    # Hashed asset filenames, so they can be cached hard.
+    # Hashed asset filenames, so they can be cached hard — which takes saying
+    # so: StaticFiles sends validators but no Cache-Control, so every visit
+    # re-asked for every bundle and waited on a 304 for each.
     assets = dist / "assets"
     if assets.is_dir():
-        app.mount("/assets", StaticFiles(directory=assets), name="assets")
+        app.mount("/assets", ImmutableFiles(directory=assets), name="assets")
 
     @app.get("/{path:path}", include_in_schema=False)
     async def spa(request: Request, path: str):
