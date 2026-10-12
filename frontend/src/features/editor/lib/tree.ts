@@ -295,3 +295,124 @@ export function outlineDigest(tree: OutlineTree, options: DigestOptions = {}): s
   const text = lines.join('\n');
   return text.length <= maxChars ? text : `${text.slice(0, maxChars)}\n…`;
 }
+
+/**
+ * Where a section sits, in a form that survives the document changing around it:
+ * the titles from the top of the outline down to it, and which of the rows
+ * with that same trail it is (almost always the first).
+ *
+ * A queued section job used to find its heading again by the source offset
+ * from when it was queued — the nearest heading with the same title. Once the
+ * sections before it had been written the offset pointed thousands of
+ * characters off, and a same-named sub-heading the model had written in an
+ * earlier section was nearer: the job wrote into that, and the real row
+ * stayed empty.
+ */
+export interface SectionTarget {
+  trail: string[];
+  nth: number;
+}
+
+const norm = (title: string) => title.trim().replace(/\s+/g, ' ').toLowerCase();
+
+function trailOf(tree: OutlineTree, index: number): string[] {
+  return [...ancestorTitles(tree, index), tree.nodes[index].label].map(norm);
+}
+
+export function targetOf(tree: OutlineTree, index: number): SectionTarget {
+  const trail = trailOf(tree, index);
+  const key = trail.join('\u0001');
+  let nth = 0;
+  for (let i = 0; i < index; i += 1) if (trailOf(tree, i).join('\u0001') === key) nth += 1;
+  return { trail, nth };
+}
+
+/** A stable string for a target — what a queued job carries. */
+export function targetKey(target: SectionTarget): string {
+  return `${target.trail.join('\u0001')}#${target.nth}`;
+}
+
+/** The row a target names in the outline as it is now, or null if it was renamed, moved out or removed. */
+export function locateTarget(tree: OutlineTree, target: SectionTarget): number | null {
+  const key = target.trail.join('\u0001');
+  let seen = 0;
+  for (let i = 0; i < tree.nodes.length; i += 1) {
+    if (norm(tree.nodes[i].label) !== target.trail[target.trail.length - 1]) continue;
+    if (trailOf(tree, i).join('\u0001') !== key) continue;
+    if (seen === target.nth) return i;
+    seen += 1;
+  }
+  return null;
+}
+
+/** Bold, italic, or the first column of a table: how a section marks the terms it defines. */
+const TERM_MARKS: Record<DocFormat, RegExp[]> = {
+  mdx: [/\*\*([^*\n]{2,48}?)\*\*/g, /(?<![*\w])\*([^*\s][^*\n]{1,46}?)\*(?![*\w])/g, /^\|\s*([^|\n]{2,48}?)\s*\|/gm],
+  latex: [/\\(?:textbf|emph|textit)\{([^{}\n]{2,48})\}/g, /\\begin\{definition\}\[([^\]\n]{2,48})\]/g],
+};
+
+/** Words set in italics for stress, not because they are being defined. */
+const EMPHASIS = new Set([
+  'all', 'any', 'both', 'each', 'either', 'every', 'no', 'none', 'not', 'only', 'never', 'always', 'must',
+  'may', 'can', 'cannot', 'exactly', 'at most', 'at least', 'one', 'two', 'some', 'same', 'different',
+  'ordered', 'unordered', 'directed', 'undirected', 'before', 'after', 'why', 'how', 'what', 'is', 'are',
+  'or', 'and', 'note', 'example', 'remark', 'key observation', 'key idea', 'intuition', 'warning',
+]);
+
+/**
+ * The terms a section's own prose defines, in the order it defines them.
+ *
+ * Sent to every later section as "already defined" — the outline told a
+ * section which neighbours were written, never what they contained, and two
+ * siblings each opened with the same table of graph kinds.
+ */
+export function definedTerms(content: string, node: OutlineNode, next: OutlineNode | undefined, format: DocFormat, limit = 12): string[] {
+  const start = content.indexOf('\n', node.offset);
+  if (start < 0) return [];
+  const body = content.slice(start, next ? next.offset : content.length)
+    .replace(/```[\s\S]*?```/g, ' ')
+    // A table's header row names its columns, not terms.
+    .replace(/^\|.*\|[ \t]*\n(?=\|[\s:|-]+\|[ \t]*$)/gm, '');
+  const found: { at: number; term: string }[] = [];
+  for (const pattern of TERM_MARKS[format]) {
+    for (const match of body.matchAll(pattern)) {
+      const term = match[1].replace(/[*_`]/g, '').replace(/\$[^$]*\$/g, '').replace(/\s+/g, ' ').trim().replace(/[:.,;]$/, '');
+      if (!term || /^:?-+:?$/.test(term) || term.split(' ').length > 6 || !/[a-z]/i.test(term)) continue;
+      if (EMPHASIS.has(term.toLowerCase())) continue;
+      found.push({ at: match.index ?? 0, term });
+    }
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const { term } of found.sort((a, b) => a.at - b.at)) {
+    const key = term.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(term);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * What the written sections define, one line each — "1.1. Graph Definitions:
+ * graph, vertex, degree". Every written row but the one being written, near
+ * or far: a term defined three chapters back is still defined.
+ */
+export function coveredDigest(
+  tree: OutlineTree, content: string, format: DocFormat, words: (node: OutlineNode) => number,
+  focus: number, maxChars = 2400,
+): string {
+  const lines: string[] = [];
+  let size = 0;
+  tree.entries.forEach(entry => {
+    if (entry.index === focus || words(entry.node) === 0) return;
+    const terms = definedTerms(content, entry.node, tree.nodes[entry.index + 1], format);
+    if (!terms.length) return;
+    const line = `${pathNumber(entry)}. ${entry.node.label.trim()}: ${terms.join(', ')}`;
+    if (size + line.length > maxChars) return;
+    lines.push(line);
+    size += line.length + 1;
+  });
+  return lines.join('\n');
+}

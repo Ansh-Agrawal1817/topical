@@ -1,5 +1,5 @@
 import { Check, Settings2, Sparkles, UserPlus, X } from 'lucide-react';
-import { Button, Chip, IconButton, Spinner, type ChipTone } from '@/components/ui';
+import { Button, Chip, DiffText, IconButton, Spinner, type ChipTone } from '@/components/ui';
 import { ProviderMark } from '@/components/ProviderTile';
 import type { AiProvider } from '@/lib/aiCredentials';
 import type { AiCollaborator } from '@/lib/types';
@@ -105,13 +105,11 @@ export function ReviewPanel({ collaborators, reviewers, onManage, onLocate }: {
                       <Chip size="xs" caps tone={KIND_TONE[s.kind] ?? 'neutral'}>{s.kind}</Chip>
                       <span className="review-card-where">{s.reviewerName} · {s.sectionLabel}</span>
                     </span>
-                    <span className="review-card-diff">
-                      {diff
-                        ? diff.map((part, i) => (part.kind === 'same'
-                          ? <span key={i}>{part.text}</span>
-                          : part.kind === 'cut' ? <del key={i}>{part.text}</del> : <ins key={i}>{part.text}</ins>))
-                        : <><del>{s.quote}</del> <ins>{s.replacement}</ins></>}
-                    </span>
+                    <DiffText
+                      className="review-card-diff"
+                      runs={diff}
+                      fallback={<><del>{s.quote}</del> <ins>{s.replacement}</ins></>}
+                    />
                     {s.reason && <span className="review-card-reason">{s.reason}</span>}
                   </button>
                   <footer className="review-card-actions">

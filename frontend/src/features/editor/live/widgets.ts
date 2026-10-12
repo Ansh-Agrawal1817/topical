@@ -1,5 +1,6 @@
 import { renderLatex } from '@/features/preview/latex/render';
 import katex from 'katex';
+import { codeSpans, mathSpans, splitTableRow } from '@/lib/markdownTables';
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view';
 
 /**
@@ -173,20 +174,36 @@ export class LabelWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
-/** Inline Markdown inside a table cell: enough to read, not a second renderer. */
+/**
+ * Inline Markdown inside a table cell: enough to read, not a second renderer.
+ *
+ * Maths and code are lifted out first and rendered from their own source.
+ * Escaping the cell first handed KaTeX `&lt;` for `<` and `&amp;` for `&`,
+ * and running bold/italic over maths turned `$a*b*c$` into emphasis.
+ */
 function cellHtml(text: string) {
-  return escapeHtml(text.trim())
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
+  const cell = text.trim();
+  const spans = [...mathSpans(cell).map(s => ['math', ...s] as const), ...codeSpans(cell).map(s => ['code', ...s] as const)]
+    .sort((a, b) => a[1] - b[1]);
+  let out = '';
+  let at = 0;
+  const prose = (chunk: string) => escapeHtml(chunk.replace(/\\\|/g, '|'))
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
-    .replace(/\$([^$]+)\$/g, (_, tex: string) => renderMath(tex, false));
-}
-
-function splitRow(line: string) {
-  let row = line.trim();
-  if (row.startsWith('|')) row = row.slice(1);
-  if (row.endsWith('|') && !row.endsWith('\\|')) row = row.slice(0, -1);
-  return row.split(/(?<!\\)\|/);
+    .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
+  for (const [kind, start, end] of spans) {
+    if (start < at) continue;
+    out += prose(cell.slice(at, start));
+    const inner = cell.slice(start, end);
+    if (kind === 'code') {
+      const ticks = inner.length - inner.replace(/^`+/, '').length;
+      out += `<code>${escapeHtml(inner.slice(ticks, inner.length - ticks).replace(/\\\|/g, '|'))}</code>`;
+    } else {
+      const fence = inner.startsWith('$$') ? 2 : 1;
+      out += renderMath(inner.slice(fence, inner.length - fence), false);
+    }
+    at = end;
+  }
+  return out + prose(cell.slice(at));
 }
 
 export class TableWidget extends WidgetType {
@@ -196,12 +213,12 @@ export class TableWidget extends WidgetType {
     const lines = this.source.split('\n').filter(line => line.trim());
     const wrap = document.createElement('div');
     wrap.className = 'cm-live-table';
-    const align = splitRow(lines[1] ?? '').map(cell => {
+    const align = splitTableRow(lines[1] ?? '').map(cell => {
       const c = cell.trim();
       return c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : 'left';
     });
-    const head = splitRow(lines[0] ?? '');
-    const body = lines.slice(2).map(splitRow);
+    const head = splitTableRow(lines[0] ?? '');
+    const body = lines.slice(2).map(splitTableRow);
     const th = head.map((cell, i) => `<th style="text-align:${align[i] ?? 'left'}">${cellHtml(cell)}</th>`).join('');
     const rows = body.map(row => `<tr>${row.map((cell, i) => `<td style="text-align:${align[i] ?? 'left'}">${cellHtml(cell)}</td>`).join('')}</tr>`).join('');
     wrap.innerHTML = `<table><thead><tr>${th}</tr></thead><tbody>${rows}</tbody></table>`;

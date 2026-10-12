@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import Boolean, Index, Integer, String, text
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,6 +36,10 @@ class LessonPlan(Base):
         JSONB, server_default=text("'[]'::jsonb"), default=list
     )
     is_public: Mapped[Optional[bool]] = mapped_column(Boolean, server_default=text("false"), default=False)
+    #: The branch of the history the document is on; snapshots are added to it.
+    current_branch_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("document_branches.id", ondelete="SET NULL", use_alter=True)
+    )
     created_at: Mapped[Optional[datetime]] = created_at_column()
     updated_at: Mapped[Optional[datetime]] = updated_at_column()
 

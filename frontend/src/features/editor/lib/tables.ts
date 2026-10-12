@@ -12,6 +12,7 @@
  */
 
 import type { EditResult, Range } from './textOps';
+import { cellBorders, splitTableRow } from '@/lib/markdownTables';
 
 /** A row of a table: `| a | b |`, `a | b`, with or without the outer pipes. */
 const ROW = /^\s*\|?.*\|.*$/;
@@ -65,33 +66,16 @@ function tableAt(doc: string, pos: number): TableLines | null {
   return { from, to, lines, caretLine, caretColumn: pos - offset };
 }
 
-/** Split a row into its cells, honouring `\|` as a literal pipe. */
+/** Split a row into its cells: `\|`, and `|` inside maths or code, are content (see `markdownTables`). */
 function cells(line: string): string[] {
-  let text = line.trim();
-  if (text.startsWith('|')) text = text.slice(1);
-  if (text.endsWith('|') && !text.endsWith('\\|')) text = text.slice(0, -1);
-  const out: string[] = [];
-  let cell = '';
-  for (let i = 0; i < text.length; i += 1) {
-    if (text[i] === '\\' && text[i + 1] === '|') { cell += '\\|'; i += 1; continue; }
-    if (text[i] === '|') { out.push(cell.trim()); cell = ''; continue; }
-    cell += text[i];
-  }
-  out.push(cell.trim());
-  return out;
+  return splitTableRow(line);
 }
 
 /** Which cell of `line` column `column` falls in. */
 function cellIndexAt(line: string, column: number): number {
-  let index = -1;
-  const lead = line.length - line.trimStart().length;
   const startsWithPipe = line.trimStart().startsWith('|');
-  if (!startsWithPipe) index = 0;
-  for (let i = lead; i < Math.min(column, line.length); i += 1) {
-    if (line[i] === '\\' && line[i + 1] === '|') { i += 1; continue; }
-    if (line[i] === '|') index += 1;
-  }
-  return Math.max(0, index);
+  const before = cellBorders(line).filter(at => at < column).length;
+  return Math.max(0, startsWithPipe ? before - 1 : before);
 }
 
 type Align = 'left' | 'center' | 'right' | 'none';

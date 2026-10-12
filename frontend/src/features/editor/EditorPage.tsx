@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useCompactEditor } from '@/hooks/useMediaQuery';
 import type { LessonPlanResponse } from '@/lib/api';
 import { documentShareUrl } from '@/lib/documentUrl';
-import { takeVersion, uploadFile } from '@/lib/api';
+import { listVersions, takeVersion, uploadFile } from '@/lib/api';
 import { useDocument } from './hooks/useDocument';
 import { useFindReplace } from './hooks/useFindReplace';
 import { EditorHeader } from './components/EditorHeader';
@@ -386,6 +386,18 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
     styleSample: () => proseSample(contentRef.current, doc.format),
     readContent: () => contentRef.current,
     readUrls: () => shelfUrlsRef.current,
+    // A batch rewrites a lot at once: the history keeps the page from just
+    // before it and just after, so a run that went wrong is one restore away.
+    onBatch: event => {
+      if (!plan.id) return;
+      const name = event.phase === 'start'
+        ? `Before writing ${event.count} ${event.count === 1 ? 'section' : 'sections'}`
+        : `AI wrote ${event.written} ${event.written === 1 ? 'section' : 'sections'}`;
+      if (event.phase === 'end' && event.written === 0) return;
+      void takeVersion(plan.id, contentRef.current, 'checkpoint', {
+        name, source: event.phase === 'end' ? 'ai' : 'human', branchId: branchRef.current?.id,
+      }).catch(() => {});
+    },
     queue,
   });
 
@@ -473,7 +485,7 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
   const applyProposedOutline = useCallback((proposal: { title: string; level: number; from?: string }[]) => {
     // The structure as it was goes into the history first, so a restructure
     // can be undone long after the undo stack has moved on.
-    if (plan.id) void takeVersion(plan.id, contentRef.current, 'checkpoint', 'Before applying an outline').catch(() => {});
+    if (plan.id) void takeVersion(plan.id, contentRef.current, 'checkpoint', { name: 'Before applying an outline', branchId: branchRef.current?.id }).catch(() => {});
     const { result, removed } = applyOutline(contentRef.current, doc.format, proposal);
     contentRef.current = result.content;
     editorRef.current?.apply(result, { focus: false, keepView: true });
@@ -813,6 +825,25 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
   }, [editing]);
 
   // ── History ─────────────────────────────────────────────────────────────
+  /**
+   * The branch of the history the document is on. Learned when the editor
+   * opens and from every snapshot the server answers, so a tab that missed a
+   * collaborator's switch stops filing its snapshots on the branch it left.
+   */
+  const [branch, setBranch] = useState<{ id: number; name: string } | null>(null);
+  const branchRef = useRef(branch);
+  branchRef.current = branch;
+  const refreshBranch = useCallback(() => {
+    if (!plan.id) return;
+    listVersions(plan.id)
+      .then(graph => {
+        const found = graph.branches.find(b => b.id === graph.currentBranchId);
+        setBranch(found ? { id: found.id, name: found.name } : null);
+      })
+      .catch(() => { /* the status bar simply shows no branch */ });
+  }, [plan.id]);
+  useEffect(() => { if (editing) refreshBranch(); }, [editing, refreshBranch]);
+
   /*
    * Automatic snapshots. The first edit of a visit keeps the text as it was
    * opened; after that, one every ten minutes of saved work. The server
@@ -823,24 +854,30 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
   useEffect(() => {
     if (!editing || !plan.id) return;
     const snap = snaps.current;
+    const take = (content: string) => takeVersion(plan.id!, content, 'auto', { branchId: branchRef.current?.id })
+      .then(({ currentBranchId }) => {
+        if (currentBranchId != null && currentBranchId !== branchRef.current?.id) refreshBranch();
+      })
+      .catch(() => {});
     if (doc.saveState === 'dirty' && snap.first) {
       snap.first = false;
       snap.last = Date.now();
-      void takeVersion(plan.id, snap.opened, 'auto').catch(() => {});
+      void take(snap.opened);
     } else if (doc.saveState === 'saved' && !snap.first && Date.now() - snap.last >= AUTO_SNAPSHOT_MS) {
       snap.last = Date.now();
-      void takeVersion(plan.id, contentRef.current, 'auto').catch(() => {});
+      void take(contentRef.current);
     }
-  }, [doc.saveState, editing, plan.id]);
+  }, [doc.saveState, editing, plan.id, refreshBranch]);
 
   const readContent = useCallback(() => contentRef.current, []);
-  const restoreVersion = useCallback((content: string, label: string) => {
+  /** A history step (restore, switch, merge) putting other text on the page. */
+  const putVersionOnPage = useCallback((content: string, title: string) => {
     // Through the editor, as one change: it reaches collaborators like any
     // edit, and ⌘Z takes it back.
     contentRef.current = content;
     editorRef.current?.apply({ content, start: 0, end: 0 }, { focus: false, keepView: true });
-    toast.success(`Restored “${label}”`, {
-      description: 'The text it replaced is in the history.',
+    toast.success(title, {
+      description: 'The page it replaced is kept in the history.',
       action: { label: 'Undo', onClick: () => editorRef.current?.undo() },
     });
   }, []);
@@ -1101,6 +1138,7 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
         peerCount={doc.peers.length}
         format={doc.format}
         onHistory={plan.id ? () => setShowHistory(true) : undefined}
+        branch={branch?.name}
         suggestions={reviewers.suggestions.length}
         reviewing={Object.values(reviewers.statuses).some(status => status.state === 'reviewing')}
         onSuggestions={doc.aiCollaborators.length ? () => openAi('review') : undefined}
@@ -1122,8 +1160,10 @@ export function DocumentView({ plan, isOwner, editing, onMode, onBack }: Documen
               open={showHistory}
               onOpenChange={setShowHistory}
               planId={plan.id}
+              format={doc.format}
               readContent={readContent}
-              onRestore={restoreVersion}
+              onPageChange={putVersionOnPage}
+              onBranch={setBranch}
             />
           )}
 

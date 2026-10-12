@@ -56,6 +56,10 @@ class GenerateSectionRequest(BaseModel):
     #: LaTeX labels already in the document — "tab:errors → Table 2 (Error
     #: rates)" — so the section can reference them and never redefine them.
     labels: Optional[List[str]] = None
+    #: What the written sections already define, one line per section — "1.1
+    #: Graph Definitions: graph, vertex, degree". Titles alone did not stop two
+    #: sibling sections from opening with the same table.
+    covered: Optional[str] = None
 
 
 class SourcesRequest(BaseModel):

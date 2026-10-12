@@ -320,7 +320,14 @@
   animation: status-pulse 1.4s var(--ease-out) infinite;
 }
 @media (prefers-reduced-motion: reduce) { .cm-live-image--uploading { animation: none; } }
-.cm-live-table { margin: 0.5em 0 0.7em; overflow-x: auto; cursor: text; }
+/* CodeMirror wraps lines with `overflow-wrap: anywhere`, which lets a cell's
+   minimum width fall to a single character: a wide table squeezed every
+   column to a letter ("C / o / n / d…") instead of scrolling sideways. Words
+   stay whole in a table, and a column is never narrower than a short word. */
+.cm-live-table {
+  margin: 0.5em 0 0.7em; overflow-x: auto; cursor: text;
+  white-space: normal; overflow-wrap: normal; word-break: normal;
+}
 .cm-live-table table {
   width: 100%;
   border-collapse: collapse;
@@ -329,7 +336,7 @@
   font-variant-numeric: tabular-nums;
 }
 .cm-live-table th,
-.cm-live-table td { padding: 0.45em 0.75em; border-bottom: 1px solid var(--line); }
+.cm-live-table td { padding: 0.45em 0.75em; border-bottom: 1px solid var(--line); min-width: 7ch; vertical-align: top; }
 .cm-live-table th { font-weight: 600; color: var(--ink); border-bottom-color: var(--line-strong); }
 .cm-live-table td { color: var(--ink-2); }
 .cm-live-table code { font-family: var(--font-mono); font-size: 0.9em; }

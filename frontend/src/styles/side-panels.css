@@ -990,20 +990,6 @@
   color: var(--ink);
   background: var(--surface);
 }
-.ai-result-body del {
-  color: var(--ink-faint);
-  text-decoration: line-through;
-  text-decoration-color: rgb(var(--danger-rgb) / 0.55);
-  background: rgb(var(--danger-rgb) / 0.07);
-}
-.ai-result-body ins {
-  color: var(--ink);
-  text-decoration: none;
-  background: rgb(var(--success-rgb) / 0.14);
-  box-shadow: inset 0 -1px 0 rgb(var(--success-rgb) / 0.45);
-}
-/* A cut run directly followed by an added one read as one word: "oftenan". */
-:is(.ai-result-body, .review-card-diff) del + ins { margin-left: 0.25em; }
 .ai-result-body--answer { white-space: normal; color: var(--ink-2); }
 .ai-result-body--answer p + p { margin-top: 0.7em; }
 .ai-result-actions { display: flex; align-items: center; gap: 6px; }
@@ -1213,18 +1199,6 @@ a.ai-context-text:focus-visible { outline: 2px solid var(--accent-400); outline-
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--ink-2);
-}
-.review-card-diff del {
-  color: var(--ink-faint);
-  text-decoration: line-through;
-  text-decoration-color: rgb(var(--danger-rgb) / 0.55);
-  background: rgb(var(--danger-rgb) / 0.07);
-}
-.review-card-diff ins {
-  color: var(--ink);
-  text-decoration: none;
-  background: rgb(var(--success-rgb) / 0.14);
-  box-shadow: inset 0 -1px 0 rgb(var(--success-rgb) / 0.45);
 }
 .review-card-reason { font-size: 11.5px; line-height: 1.45; color: var(--ink-muted); }
 .review-card-actions { display: flex; gap: 6px; padding: 0 12px 10px; }

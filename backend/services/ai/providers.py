@@ -147,18 +147,40 @@ MAX_ATTEMPTS = 3
 _BASE_DELAY_SECONDS = 1.0
 
 
-async def generate_content(prompt: str, credentials: AiCredentials, *, json_mode: bool = False) -> str:
-    """Generate content via litellm, retrying the failures that are worth retrying.
+@dataclass(frozen=True)
+class Completion:
+    """A model's answer, and why it stopped."""
+
+    text: str
+    #: "stop" for a finished answer; "length" when the token limit cut it off.
+    finish_reason: str = "stop"
+
+    @property
+    def truncated(self) -> bool:
+        """Cut off by the token limit — the end of the text is not where the model meant to stop."""
+        return self.finish_reason == "length"
+
+
+async def complete(
+    prompt: str, credentials: AiCredentials, *, json_mode: bool = False, system: Optional[str] = None,
+) -> Completion:
+    """One completion via litellm, retrying the failures that are worth retrying.
 
     Async all the way down: a blocking call here would stall every other
     request for the length of a model round-trip, and the backoff would stall
     it further still.
+
+    ``system`` carries the standing rules — the house style a section is
+    written in — apart from the request itself. Models weigh a system message
+    as the brief rather than as one more paragraph of the ask, and it is the
+    part of the prompt that stays the same from call to call.
 
     No temperature is passed. Gemini 3 models warn that anything below the
     default degrades reasoning and can fail outright, and the other providers'
     defaults are already appropriate for this kind of writing.
     """
     delay = _BASE_DELAY_SECONDS
+    messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
@@ -167,7 +189,7 @@ async def generate_content(prompt: str, credentials: AiCredentials, *, json_mode
             response = cast(
                 litellm.ModelResponse,
                 await litellm.acompletion(
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=messages,
                     # JSON mode where the provider has one; `drop_params`
                     # silently removes it for providers that do not, rather
                     # than failing the request.
@@ -176,7 +198,7 @@ async def generate_content(prompt: str, credentials: AiCredentials, *, json_mode
                 ),
             )
             choice = cast(Choices, response.choices[0])
-            return choice.message.content or ""
+            return Completion(choice.message.content or "", str(choice.finish_reason or "stop"))
 
         except _RETRYABLE as exc:
             if attempt == MAX_ATTEMPTS:
@@ -189,6 +211,14 @@ async def generate_content(prompt: str, credentials: AiCredentials, *, json_mode
             )
             await asyncio.sleep(wait)
             delay *= 2.5
+    raise AssertionError("unreachable")
+
+
+async def generate_content(
+    prompt: str, credentials: AiCredentials, *, json_mode: bool = False, system: Optional[str] = None,
+) -> str:
+    """The text of one completion — for callers that do not need to know how it ended."""
+    return (await complete(prompt, credentials, json_mode=json_mode, system=system)).text
 
 
 VERIFY_TIMEOUT_SECONDS = 20

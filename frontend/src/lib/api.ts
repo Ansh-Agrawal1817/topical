@@ -389,6 +389,8 @@ export interface SectionBody {
   lead_in?: string;
   /** LaTeX labels already in the document ("tab:x → Table 2 (…)"), to reference and not redefine. */
   labels?: string[];
+  /** What the written sections already define, one line per section. */
+  covered?: string;
 }
 
 /** Write one section of a document. Returns the model's raw markup. */
@@ -634,9 +636,14 @@ export function personName(p: Pick<Person, "givenName" | "familyName" | "usernam
 
 // ── Document history ──────────────────────────────────────────────────────
 
-export type VersionKind = "auto" | "manual" | "restore" | "checkpoint";
+/**
+ * How a version came to be: taken on a timer, saved by hand, kept before a
+ * large change, a restore of an older one, a merge of another branch, or the
+ * page as it was left when the document moved to another branch.
+ */
+export type VersionKind = "auto" | "manual" | "checkpoint" | "restore" | "merge" | "switch";
 
-/** One snapshot of a document's text, without the text. */
+/** One version of a document's text, without the text, and where it sits in the history graph. */
 export interface DocumentVersion {
   id: number;
   name: string | null;
@@ -645,27 +652,63 @@ export interface DocumentVersion {
   createdBy: string;
   createdByUsername: string | null;
   createdAt: string | null;
+  branchId: number | null;
+  /** The version this one was taken on top of. */
+  parentId: number | null;
+  mergedFromId: number | null;
+  restoredFromId: number | null;
+  source: "human" | "ai";
 }
 
-export async function listVersions(planId: number): Promise<DocumentVersion[]> {
-  return (await json<{ versions: DocumentVersion[] }>(`/lessonPlans/${planId}/versions`, {
-    failure: "Could not load the history",
-  })).versions;
+/** A line of the history. `headVersionId` is its newest version — or, for a fresh fork, the one it started from. */
+export interface DocumentBranch {
+  id: number;
+  name: string;
+  headVersionId: number | null;
+  createdBy: string;
+  createdAt: string | null;
+}
+
+export interface VersionGraph {
+  versions: DocumentVersion[];
+  branches: DocumentBranch[];
+  /** The branch the document is on; null before its first version. */
+  currentBranchId: number | null;
+}
+
+/** A history step that changes the page: what the page says now, and the branch it is on. */
+export interface PageChange {
+  content: string;
+  currentBranchId: number;
+  version?: DocumentVersion | null;
+  branch?: DocumentBranch | null;
+}
+
+export async function listVersions(planId: number): Promise<VersionGraph> {
+  return json<VersionGraph>(`/lessonPlans/${planId}/versions`, { failure: "Could not load the history" });
 }
 
 export async function getVersion(planId: number, versionId: number): Promise<DocumentVersion & { content: string }> {
   return json(`/lessonPlans/${planId}/versions/${versionId}`, { failure: "Could not load that version" });
 }
 
-/** Take a snapshot. Null when the server declined one that would add nothing. */
+export interface TakeVersionOptions {
+  name?: string;
+  source?: "human" | "ai";
+  /** The branch this tab believes the document is on; a stale automatic snapshot is dropped. */
+  branchId?: number | null;
+  mergedFromId?: number;
+}
+
+/** Take a snapshot. `version` is null when the server declined one that would add nothing. */
 export async function takeVersion(
-  planId: number, content: string, kind: VersionKind, name?: string,
-): Promise<DocumentVersion | null> {
-  return (await json<{ version: DocumentVersion | null }>(`/lessonPlans/${planId}/versions`, {
+  planId: number, content: string, kind: "auto" | "manual" | "checkpoint" | "merge", options: TakeVersionOptions = {},
+): Promise<{ version: DocumentVersion | null; currentBranchId: number | null }> {
+  return json(`/lessonPlans/${planId}/versions`, {
     method: "POST",
-    body: { content, kind, name },
+    body: { content, kind, name: options.name, source: options.source, branchId: options.branchId ?? undefined, mergedFromId: options.mergedFromId },
     failure: "Could not save a snapshot",
-  })).version;
+  });
 }
 
 export async function renameVersion(planId: number, versionId: number, name: string): Promise<DocumentVersion> {
@@ -680,6 +723,50 @@ export async function deleteVersion(planId: number, versionId: number): Promise<
   await request(`/lessonPlans/${planId}/versions/${versionId}`, {
     method: "DELETE",
     failure: "Could not delete that version",
+  });
+}
+
+/** Bring a version back as a new step on the current branch. `page` is kept first. */
+export async function restoreVersion(planId: number, versionId: number, page: string): Promise<PageChange> {
+  return json(`/lessonPlans/${planId}/versions/${versionId}/restore`, {
+    method: "POST",
+    body: { content: page },
+    failure: "Could not restore that version",
+  });
+}
+
+/** Start a branch from a version; with `switchTo`, the document moves onto it (`page` is kept first). */
+export async function forkBranch(
+  planId: number, fromVersionId: number, name: string, page: string, switchTo = true,
+): Promise<PageChange> {
+  return json(`/lessonPlans/${planId}/branches`, {
+    method: "POST",
+    body: { fromVersionId, name, content: page, switch: switchTo },
+    failure: "Could not start that branch",
+  });
+}
+
+/** Move the document onto another branch; `page` is kept on the branch it leaves. */
+export async function checkoutBranch(planId: number, branchId: number, page: string): Promise<PageChange> {
+  return json(`/lessonPlans/${planId}/branches/${branchId}/checkout`, {
+    method: "POST",
+    body: { content: page },
+    failure: "Could not switch branches",
+  });
+}
+
+export async function renameBranch(planId: number, branchId: number, name: string): Promise<DocumentBranch> {
+  return json(`/lessonPlans/${planId}/branches/${branchId}`, {
+    method: "PATCH",
+    body: { name },
+    failure: "Could not rename that branch",
+  });
+}
+
+export async function deleteBranch(planId: number, branchId: number): Promise<void> {
+  await request(`/lessonPlans/${planId}/branches/${branchId}`, {
+    method: "DELETE",
+    failure: "Could not delete that branch",
   });
 }
 

@@ -2,7 +2,10 @@ import { useCallback, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import type { DocFormat } from '@/lib/types';
 import type { OutlineNode } from '../lib/outline';
-import { ancestorTitles, childTitles, indexOutline, outlineDigest, pathNumber, sectionGist, sectionWords, type OutlineTree } from '../lib/tree';
+import {
+  ancestorTitles, childTitles, coveredDigest, indexOutline, locateTarget, outlineDigest, pathNumber, sectionGist,
+  sectionWords, targetKey, targetOf, type OutlineTree, type SectionTarget,
+} from '../lib/tree';
 import { buildOutline } from '../lib/outline';
 import { headingShape } from '../lib/sections';
 import { generateSection } from '../lib/generation';
@@ -29,6 +32,11 @@ interface Options {
   readContent: () => string;
   /** The context shelf's switched-on pages, read when each job starts. */
   readUrls: () => string[];
+  /**
+   * A batch is about to write `count` sections, or has finished with `written`
+   * of them — the moments worth a snapshot in the document's history.
+   */
+  onBatch?: (event: { phase: 'start'; count: number } | { phase: 'end'; written: number }) => void;
   queue: AiQueue;
 }
 
@@ -51,24 +59,34 @@ const LEAD_IN_CHARS = 700;
  * document whole — which would defeat writing it section by section.
  */
 export function useSectionWriter({
-  format, projectName, tree, wordsOf, onInsertSection, onFocusSection, styleSample, readContent, readUrls, queue,
+  format, projectName, tree, wordsOf, onInsertSection, onFocusSection, styleSample, readContent, readUrls, onBatch, queue,
 }: Options) {
   const jobs = useAiJobs(queue);
-  const latest = useRef({ format, projectName, onInsertSection, onFocusSection, styleSample, readContent, readUrls });
-  latest.current = { format, projectName, onInsertSection, onFocusSection, styleSample, readContent, readUrls };
+  const latest = useRef({ format, projectName, onInsertSection, onFocusSection, styleSample, readContent, readUrls, onBatch });
+  latest.current = { format, projectName, onInsertSection, onFocusSection, styleSample, readContent, readUrls, onBatch };
 
-  /** Row state by heading offset: queued, being written (or retried), failed. */
+  /**
+   * Row state by heading offset *now*: queued, being written (or retried),
+   * failed. Jobs name their section by its place in the outline, so the state
+   * follows the row wherever the text around it has moved.
+   */
   const status = useMemo(() => {
-    const out: Record<number, RowStatus> = {};
+    const byTarget: Record<string, RowStatus | undefined> = {};
     for (const job of jobs) {
-      if (job.kind !== 'section' || job.key === undefined) continue;
-      if (job.status === 'queued') out[job.key] = 'queued';
-      else if (job.status === 'running' || job.status === 'retrying') out[job.key] = 'generating';
-      else if (job.status === 'failed') out[job.key] = 'failed';
-      else delete out[job.key];
+      if (job.kind !== 'section' || job.target === undefined) continue;
+      if (job.status === 'queued') byTarget[job.target] = 'queued';
+      else if (job.status === 'running' || job.status === 'retrying') byTarget[job.target] = 'generating';
+      else if (job.status === 'failed') byTarget[job.target] = 'failed';
+      else delete byTarget[job.target];
     }
+    const out: Record<number, RowStatus> = {};
+    if (!Object.keys(byTarget).length) return out;
+    tree.nodes.forEach((node, index) => {
+      const state = byTarget[targetKey(targetOf(tree, index))];
+      if (state) out[node.offset] = state;
+    });
     return out;
-  }, [jobs]);
+  }, [jobs, tree]);
 
   /** Sections with no prose behind them yet — what "write the rest" means. */
   const missing = useMemo(
@@ -78,22 +96,33 @@ export function useSectionWriter({
   const outline = useRef({ tree, missing, status });
   outline.current = { tree, missing, status };
 
+  /**
+   * The row a job writes, found again in the document as it is now — by its
+   * place in the outline, never by where its heading used to be.
+   */
+  const locate = (target: SectionTarget, label: string) => {
+    const { format, readContent } = latest.current;
+    const content = readContent();
+    const nodes = buildOutline(content, format);
+    const fresh = indexOutline(nodes);
+    const index = locateTarget(fresh, target);
+    if (index === null) throw new Error(`"${label}" is no longer in the outline — it was renamed, moved or removed.`);
+    return { content, nodes, fresh, index, here: nodes[index] };
+  };
+
   /** One section, as a job. The request is built when the job starts. */
-  const enqueue = useCallback((node: OutlineNode, instruction: string, batch?: string) => queue.add({
+  const enqueue = useCallback((node: OutlineNode, instruction: string, batch?: string) => {
+    const { tree } = outline.current;
+    const index = tree.byOffset.get(node.offset);
+    const target = index === undefined ? { trail: [node.label.trim().toLowerCase()], nth: 0 } : targetOf(tree, index);
+    return queue.add({
     kind: 'section',
     label: node.label,
-    key: node.offset,
+    target: targetKey(target),
     batch,
     run: async signal => {
-      const { format, projectName, onInsertSection, onFocusSection, styleSample, readContent, readUrls } = latest.current;
-      const content = readContent();
-      // The document has moved since this was queued: find the row again.
-      const nodes = buildOutline(content, format);
-      const fresh = indexOutline(nodes);
-      const candidates = nodes.filter(n => n.label.trim().toLowerCase() === node.label.trim().toLowerCase());
-      const here = candidates.sort((a, b) => Math.abs(a.offset - node.offset) - Math.abs(b.offset - node.offset))[0];
-      if (!here) throw new Error(`"${node.label}" is no longer in the document.`);
-      const index = fresh.byOffset.get(here.offset)!;
+      const { format, projectName, onInsertSection, onFocusSection, styleSample, readUrls } = latest.current;
+      const { content, nodes, fresh, index, here } = locate(target, node.label);
       onFocusSection?.(here);
 
       const own = sectionWords(fresh, content, format).own;
@@ -112,6 +141,7 @@ export function useSectionWriter({
           focus: index,
           gist: n => sectionGist(content, n, nodes[nodes.indexOf(n) + 1]),
         }),
+        covered: coveredDigest(fresh, content, format, ownWords, index),
         urls: readUrls(),
         instruction,
         styleSample: styleSample?.(),
@@ -121,11 +151,15 @@ export function useSectionWriter({
       // Cancelled while the model was answering: the queue has moved on, and
       // the answer must not land in a document that stopped asking for it.
       if (signal.aborted) return;
-      // The heading is always already on the page, so this replaces what sits
-      // under it rather than adding a second copy.
-      onInsertSection(text, here.label, true, here.offset);
+      // Found again: the writer may have typed, or a collaborator edited,
+      // while the model was answering. The heading is already on the page,
+      // so this replaces what sits under it rather than adding a second copy.
+      const now = locate(target, node.label).here;
+      onInsertSection(text, now.label, true, now.offset);
     },
-  }), [queue]);
+    });
+  // `locate` reads only refs.
+  }, [queue]);
 
   const writeSection = useCallback((node: OutlineNode, instruction = '') => {
     void enqueue(node, instruction).catch(() => { /* shown in the queue */ });
@@ -148,9 +182,11 @@ export function useSectionWriter({
       return;
     }
     const batch = `batch-${Date.now()}`;
+    latest.current.onBatch?.({ phase: 'start', count: pending.length });
     const runs = pending.map(node => enqueue(node, instruction, batch));
     void Promise.allSettled(runs).then(results => {
       const done = results.filter(r => r.status === 'fulfilled').length;
+      latest.current.onBatch?.({ phase: 'end', written: done });
       if (done === pending.length) toast.success(`Wrote ${done} ${done === 1 ? 'section' : 'sections'}`);
     });
   }, [enqueue]);

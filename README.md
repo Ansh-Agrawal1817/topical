@@ -1,233 +1,348 @@
 # Topical
 
-**You bring a topic. Topical brings the structure, the research, and the first draft.**
+**All you need is a topic.**
 
-Topical is a web application for writing long, structured documents — the kind
-with numbered sections, equations, figures and references. You give it a
-subject; it proposes a hierarchy of sections; then it writes them one at a
-time, on your instruction, grounded in live web sources rather than model
-memory alone.
+Topical is a web application for writing long, structured documents: course
+notes, lesson plans, research summaries and technical documentation, with
+numbered sections, equations, tables and references. You name a subject.
+Topical proposes an outline, then writes it section by section, each under its
+own heading and grounded in sources you choose. Everything happens in an
+editor you control.
 
-Nothing is written for you behind your back. Every section arrives as a draft
-you read, place, and revise. The AI is a drafting tool inside an editor you
-control — not a chat box that hands you a finished document.
+The AI drafts; you decide what stays. Every job is visible in a queue, every
+rewrite is shown as a diff before it is applied, and every large change is
+kept in a version history that you can restore, branch and merge.
 
-It writes **MDX** (Markdown with maths) or **LaTeX**, side by side with a live
-preview, and it is built for lesson plans, course notes, research summaries,
-and technical documentation.
+Documents are written in **MDX** (Markdown with KaTeX maths) or **LaTeX**, and
+render as you type.
 
 ---
 
 ## Contents
 
-- [What it does](#what-it-does)
-- [How it fits together](#how-it-fits-together)
-- [Running it locally](#running-it-locally)
-- [Your first document](#your-first-document)
-- [Working on the code](#working-on-the-code)
-- [Deploying](#deploying)
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Getting started](#getting-started)
+- [Development](#development)
+- [API reference](#api-reference)
+- [Deployment](#deployment)
+- [License](#license)
 
 ---
 
-## What it does
+## Features
 
-### Structure before prose
+### Outline first
 
-Generation starts from an outline, not a blank page. Ask for a subject and
-Topical returns a tree of sections and subsections; the **outline rail** on the
-right of the editor is where you reorder, nest, rename, add and delete them.
+A document starts as a tree of sections, not a blank page. The **outline rail**
+on the left of the editor shows that tree, with each section's word count.
+Rows can be dragged, nested, renamed, added and deleted with the mouse or the
+keyboard.
 
-Because the outline exists first, each section prompt carries the *rest* of the
-document with it — every sibling's title, its address (`2.3`), and whether it
-has been written yet. That is what stops four sections from saying the same
-thing. Three outline operations are available:
+The **AI panel** on the right (`⌘J`, or the toolbar's AI button) has five tabs:
 
-| Operation | What it's for |
+| Tab | Purpose |
 |---|---|
-| Propose an outline | Build a section hierarchy for a new subject |
-| Outline from a document | Recover the structure a draft you already have is reaching for |
-| Refine an outline | Restructure what's there, with a stated reason for each change |
+| **Outline** | Propose an outline for a subject, recover the one an existing draft is reaching for, or restructure the current outline. Each change comes with a reason, and a proposal lists what it keeps, adds and removes before you apply it. |
+| **Write** | Write every empty section in document order, rewrite all of them, or write a single one. An optional instruction ("lead with a worked example", "for experts") applies to the whole run. |
+| **Refine** | Improve, expand, shorten, simplify, fix grammar, make academic, turn into bullets or a table, set the maths, continue, or explain the selected passage. The result is shown as a word-level diff, and nothing changes until you apply it. |
+| **Review** | Suggestions from AI collaborators on the document (see [Collaboration](#collaboration)). |
+| **Context** | The web pages the model reads while writing. Paste links, or search for the top pages on the subject. |
 
-### Grounded section drafting
+### Section writing
 
-For each section you choose where the material comes from:
+Each section is written in its own request. That request carries the context
+needed to fit into the rest of the document, without sending the whole
+document:
 
-- **Model** — the model's own knowledge, nothing fetched.
-- **Web** — a live crawl for that section's topic, summarised into the prompt.
-- **URLs** — up to four pages you name yourself.
+- the outline, numbered, with each row marked written or not written yet;
+- the headings the section sits under, and the sub-sections a parent must leave
+  to its children;
+- a few words of what neighbouring sections already say, and the terms the
+  written sections already define, so that two sections do not open with the
+  same table;
+- the end of the text before the section, and a sample of the document's voice;
+- the most relevant passages from the context pages.
 
-You can attach an instruction to any generation ("keep it under 250 words",
-"lead with a worked example", "include a comparison table"), or write your own.
-The draft comes back as a snippet you place; it is never silently spliced into
-your document.
+Sections are written through the **AI queue**, one at a time. A rate limit or a
+dropped connection pauses the queue and retries using the provider's own
+`Retry-After`; an invalid key stops it. The queue dock at the bottom of the AI
+panel shows every waiting job and lets you cancel, retry or remove any of them.
 
-### An editor that knows the format
+A job finds its section by its place in the outline, not by its position in the
+text. A run of forty sections lands each one under the right heading however
+much the text above it grows.
 
-- `/` opens a menu of every construct the current format has — headings, lists,
-  tables, code blocks, figures, theorem environments, equations.
-- Lists and environments continue on Enter; `Tab` and `⇧Tab` indent and outdent.
-- `⌘B` / `⌘I` / `⌘E` / `⌘K` wrap the selection; `⌘1`–`⌘3` set heading level.
-- `⌘F` is find-and-replace over the source; `⌘\` toggles the outline rail;
-  `⌘/` lists every shortcut; `⌘K` opens a command palette for pages and actions.
+### Writing quality
 
-Select a passage and press `⌘J` for AI on what *you* wrote: improve, expand,
-shorten, fix grammar, simplify, set an academic tone, turn it into bullets or a
-table, set the maths, continue from the caret, explain what it says and what it
-misses — or give a free-form instruction. Nothing is applied until you have read
-the result.
+Generated text goes through two layers before it reaches the page.
 
-### Write in the rendered page
+**A house style**, sent as the system message. It is written for a motivated
+newcomer by default; any instruction asking for a different audience
+overrides it. It asks for:
 
-There is no preview pane. The editor renders as you type — headings, emphasis,
-lists, tables, KaTeX maths, `\cite` and `\ref` pills — and shows a construct's
-markup, greyed, only while the caret is on it. A Source switch shows the raw
-text when you want it.
+- the intuition and a concrete example before formal definitions;
+- every symbol defined, in the document's existing notation;
+- short paragraphs, lists and tables only where the content calls for them;
+- no closing summaries, no "in this section we will", and no stock phrasing;
+- every sentence finished.
 
-Readers, print and PDF get the full renderer. The LaTeX path is a parser →
-preamble → renderer pipeline that handles the article-shaped subset people
-actually write: numbered sections, `\ref` and `\cite` resolution, `\newcommand`
-macros, theorem environments, floats, tables, footnotes and bibliographies.
-Unknown commands still render their argument, so text never silently
-disappears, and anything it cannot handle is reported as an issue rather than
-dropped.
+**A check on every answer** (`backend/services/ai/shape.py` and `quality.py`).
+Problems that can be repaired are repaired:
 
-### Collaboration, sharing and publishing
+- a heading at or above the section's level is demoted;
+- headings the model numbered itself are stripped of their numbers;
+- a closing "Summary" or "Key takeaways" block is removed;
+- non-breaking hyphens and invisible characters are normalised;
+- unbalanced maths and environments are closed;
+- a `|` inside maths in a table row is rewritten so the table keeps its columns.
 
-- **Real-time multiplayer** over the Yjs CRDT, with peer cursors. The server is
-  a full participant — it holds the merged document — so joining a document
-  that is already being edited shows you its current state, not an empty page.
-- **Co-authors.** Invite another account to write with you.
-- **One address per document.** `/projects/mdx/12201` names the document and
-  nothing else; the *server* decides whether you get the editor, the reader, or
-  a locked notice. A link is safe to hand to anyone.
-- **Export and publish.** Download `.md` / `.tex`, print to PDF, or publish to a
-  public library with a community forum (posts, comments, votes) attached.
+Problems that cannot be repaired send the request back to the model once, with
+the problems named:
 
-### Your own model, your own account
+- an answer cut off at the token limit;
+- an answer that stops mid-sentence;
+- a refusal;
+- a section far shorter than asked;
+- a sub-section that opens with a heading instead of prose;
+- an introduction that covers its children's material.
 
-- **Bring your own key.** Gemini, OpenAI, Anthropic, xAI or Mistral, routed
-  through LiteLLM. Keys are per-user, held in your browser, and sent only as a
-  header on the one request that needs them — never stored server-side, never
-  logged.
-- **In-house authentication.** Email and password, Argon2id hashes, revocable
-  server-side sessions. No third-party identity provider to register with.
-- Light and dark themes, resolved before first paint.
+Sections may add their own sub-headings, but only below their own level and
+only after an opening paragraph. The outline you planned stays the outline.
+
+### The editor
+
+The editor is CodeMirror 6 in a live mode. Headings, emphasis, lists, tables,
+KaTeX maths, and `\cite` / `\ref` pills render in place. A construct's markup
+appears, greyed, only while the caret is inside it. The header switches
+between **Read**, **Live** and **Source**.
+
+| Shortcut | Action |
+|---|---|
+| `/` | Insert any construct (headings, lists, tables, code, callouts, figures, theorems, equations) or run an AI command |
+| `⌘J` | Open the AI panel on the selection |
+| `⌘B` `⌘I` `⌘E` `⌘K` | Bold, italic, inline code, link |
+| `⌘1`–`⌘3` | Heading level |
+| `⌘F`, `⌘G` | Find and replace; next match |
+| `⌘\` | Show or hide the outline rail |
+| `⌘/` | Every shortcut |
+| `Tab` / `⇧Tab` | Indent and outdent; move between table cells |
+
+Pasting or dropping an image uploads it. Each document has its own page style:
+paper, sepia, slate or night, with a choice of accent colour and typeface.
+
+The LaTeX renderer is a parser, preamble and renderer pipeline for the
+article-shaped subset people actually write: numbered sections, `\ref` and
+`\cite`, `\newcommand` macros, theorem environments, floats, tables, footnotes
+and bibliographies. An unknown command still renders its argument, so text is
+never silently dropped.
+
+### Version history
+
+Versions are stored in the database. Anyone who can write the document sees
+the same history from any account or browser; readers of a published document
+do not, because history keeps text that was deleted on purpose.
+
+A version is kept:
+
+- on the first edit of each visit;
+- every ten minutes while you write;
+- before and after every batch of AI sections;
+- before an outline is applied, a version is restored, or branches are switched or merged;
+- whenever you save one by name.
+
+The history opens from the save state in the status bar. It is drawn as a
+graph, with one lane per branch and the newest versions at the top.
+
+- **Restore** brings any version back as a new step on the current branch, so
+  nothing is overwritten and the restore can itself be undone.
+- **Branch from here** starts a separate line of the document from any version,
+  for trying an alternative. The page you leave is kept on its own branch.
+- **Switch** moves the document between branches. Switching is document-wide:
+  there is one live page, so collaborators see the switch.
+- **Merge** brings another branch in one section at a time. For each section
+  that differs, you choose which version to keep.
+
+Each version shows what it changed, against the version before it or against
+the page now: first the sections touched, then the lines, with changed words
+marked inside edited lines. It can also be read rendered, or as source.
+
+### Collaboration
+
+- **Real-time editing** over the Yjs CRDT, with live cursors. The server is a
+  full participant and holds the merged document, so anyone joining a
+  document mid-edit sees its current state.
+- **Co-authors.** Invite other accounts to write with you.
+- **AI collaborators.** Add your saved models to a document as reviewers. Each
+  one reads only the section someone last edited, at an interval you set. It
+  suggests a change only where something is wrong: a factual error, a broken
+  sentence, broken markup. Suggestions appear in the Review tab to accept or
+  dismiss.
+- **One address per document.** `/projects/mdx/12201` names the document; the
+  server decides whether the visitor gets the editor, the reader or a locked
+  notice, so a link is safe to share.
+
+### Publishing and export
+
+- Download the source (`.mdx` or `.tex`) or a PDF.
+- Publish to the community library, with a forum for posts, comments and votes,
+  and public author profiles.
+- The **Sources** panel lists every link, citation and footnote in the document.
+
+### Models and keys
+
+Topical works with Gemini, Groq, OpenRouter, Cerebras, Mistral, DeepSeek,
+Together AI, OpenAI, Anthropic, xAI, or a local Ollama, routed through
+LiteLLM. The model picker reads each provider's live model list.
+
+Keys belong to each user. They are kept in the browser and sent as a header
+only on the request that needs them, never stored on the server or written to
+logs. Starting an AI action without a key opens a prompt for one, and the
+action carries on once it is added.
 
 ---
 
-## How it fits together
+## How it works
 
-One backend, one process. It serves the REST API under `/api`, the
-collaboration socket at `/ws/doc/{id}`, all AI generation, and — in production —
-the built frontend. In development Vite serves the app and proxies `/api` and
-`/ws` to it.
+One backend process serves the REST API under `/api`, the collaboration
+socket at `/ws/doc/{id}`, all AI requests and, in production, the built
+frontend. In development, Vite serves the frontend and proxies `/api` and
+`/ws` to the backend.
 
 ```
-                  ┌──────────────────────────────┐
-browser ─ /api ──▶│  FastAPI (:3000)             │──▶ model provider (LiteLLM)
-   │              │  api → services → db         │──▶ live web (Crawl4AI)
-   └──── /ws ────▶│  realtime: Yjs rooms         │
-                  └───────────────┬──────────────┘
-                                  ▼
-                             PostgreSQL
+                    ┌────────────────────────────────┐
+ browser ── /api ──▶│ FastAPI (:3000)                │──▶ model providers (LiteLLM)
+    │               │ routes → services → database   │──▶ web pages (Crawl4AI)
+    └────── /ws ───▶│ realtime: one Yjs room per doc │
+                    └───────────────┬────────────────┘
+                                    ▼
+                               PostgreSQL
 ```
 
-| Layer | Stack | Dev port |
-|---|---|---|
-| Frontend | React 18, TypeScript, Vite 5, TanStack Router + Query, Tailwind, Yjs | `5173` |
-| Backend | Python 3.10+, FastAPI, SQLAlchemy 2 (async) over asyncpg, Alembic | `3000` |
-| Data | PostgreSQL | — |
-| AI | LiteLLM (provider routing), Crawl4AI (live web) | — |
+| Layer | Technology |
+|---|---|
+| Frontend | React 18, TypeScript, Vite 5, TanStack Router and Query, CodeMirror 6, KaTeX, Yjs, Tailwind CSS |
+| Backend | Python 3.10+, FastAPI, SQLAlchemy 2 (async, asyncpg), Alembic, pycrdt |
+| AI | LiteLLM for provider routing; Crawl4AI for reading web pages, with a plain HTTP fallback |
+| Data | PostgreSQL |
 
-Four tables carry everything: `users` (account and profile), `lesson_plans`
-(a document — its sections as `jsonb`, its co-authors as a `jsonb` array of
-user ids, and a public flag), `auth_sessions`, and the `community_posts` /
-`community_post_comments` / `community_post_votes` trio.
+### Data model
 
-> **A naming quirk to know up front.** The storage layer calls a document a
-> *lesson plan* — that is the table name, the model name, and the API prefix
-> (`/api/lessonPlans`). The table predates the editor. Everywhere a user can
-> see it, it is a *document*.
+| Table | Holds |
+|---|---|
+| `users`, `auth_sessions` | Accounts (Argon2id password hashes) and server-side sessions |
+| `lesson_plans` | Documents: the text, co-authors, AI collaborators, the public flag, and the history branch the document is on |
+| `document_versions` | Whole-text snapshots, each with its parent, branch, and any merge or restore link |
+| `document_branches` | Branches of a document's history and their newest versions |
+| `community_posts`, `community_post_comments`, `community_post_votes` | The community forum |
+
+> The storage layer calls a document a **lesson plan**. That is the table name,
+> the model name and the API prefix (`/api/lessonPlans`); the table predates the
+> editor. Everywhere a user can see, it is a document.
+
+### Writing a section, end to end
+
+1. The editor builds the request when the job starts, from the document as it
+   is at that moment: outline digest, placement, defined terms, lead-in, voice
+   sample, and context pages.
+2. `services/ai/generation.py` reads the context pages
+   (`crawl.py`, cached and cut down to the relevant passages), builds the
+   prompt (`prompts.py`) and calls the provider (`providers.py`).
+3. `shape.py` repairs the answer and `quality.py` checks it. If the answer is
+   unusable, the model is asked again once with the problems listed, and the
+   better of the two answers is kept.
+4. The editor finds the section again by its place in the outline, fits the
+   text under its heading (`lib/sections.ts`), and applies it as one undoable
+   change that collaborators receive like any other edit.
+
+### Live collaboration
+
+Rooms live in the backend's memory, and the durable copy is saved through the
+REST API. Each room has an epoch, and the room itself decides who supplies its
+initial text, exactly once. A client reconnecting to a recreated room (after
+a server restart) starts a fresh copy instead of merging in its old history,
+because merging two independently started texts puts the document in twice.
+A room is discarded 30 seconds after its last connection leaves.
 
 ---
 
-## Running it locally
+## Getting started
 
-**Prerequisites**
+### Prerequisites
 
-- **Python 3.10 or newer.** Crawl4AI does not import on 3.9.
-- **Node.js and npm.**
-- **A reachable PostgreSQL database.** Local or hosted; anything that gives you
-  a connection string.
+- Python 3.10 or newer (Crawl4AI does not import on 3.9)
+- Node.js and npm
+- A PostgreSQL database, local or hosted
 
-**Setup**
+### Install and run
 
 ```bash
 git clone https://github.com/aryankad1an/topical.git
 ```
 
 ```bash
-cd topical && cd frontend && npm install && cd ..
+cd topical/frontend && npm install && cd ..
 ```
 
 ```bash
-cp .env.example .env    # then set DATABASE_URL
+cp .env.example .env
 ```
+
+Set `DATABASE_URL` in `.env`, then start everything:
 
 ```bash
 ./run.sh
 ```
 
 `run.sh` frees ports 3000 and 5173, creates `.venv` and installs the Python
-dependencies on first run (including the headless browser Crawl4AI needs),
-applies migrations, and starts both processes. Open **http://localhost:5173**
-and create an account.
+dependencies on first run (including Crawl4AI's headless browser), applies
+the database migrations, and starts the backend and the frontend. Open
+**http://localhost:5173** and create an account.
 
-If you want to pin a specific interpreter, create `.venv` yourself before the
-first run — otherwise `run.sh` picks the first Python ≥ 3.10 it finds.
+To use a specific Python, create `.venv` yourself before the first run.
+Otherwise `run.sh` uses the first Python 3.10+ it finds.
 
 ### Configuration
 
-`DATABASE_URL` is the only variable you must set. Authentication is in-house,
-so there is nothing to register with anywhere.
+Only `DATABASE_URL` is required. Authentication is built in, so there is no
+identity provider to configure.
 
-| Variable | Required | Purpose |
+| Variable | Default | Purpose |
 |---|---|---|
-| `DATABASE_URL` | **yes** | PostgreSQL connection string, in ordinary `postgresql://` form |
-| `HOST` / `PORT` | no | Where the backend listens. Default `0.0.0.0:3000` |
-| `ENVIRONMENT` | no | `production` marks session cookies Secure, which needs HTTPS |
-| `SESSION_TTL_DAYS` | no | How long a session survives unused. Default 14 |
-| `UPLOADS_DIR` | no | Where uploaded images are written. Default `./uploads` |
-| `LOG_LEVEL` | no | Default `INFO` |
+| `DATABASE_URL` | — | PostgreSQL connection string, in ordinary `postgresql://` form |
+| `HOST`, `PORT` | `0.0.0.0`, `3000` | Where the backend listens; Vite's dev proxy expects 3000 |
+| `ENVIRONMENT` | `development` | `production` marks session cookies Secure, which requires HTTPS |
+| `SESSION_TTL_DAYS` | `14` | How long an unused session stays valid |
+| `UPLOADS_DIR` | `./uploads` | Where uploaded images are written |
+| `STATIC_DIR` | `./frontend/dist` | The built frontend the backend serves |
+| `OLLAMA_API_BASE` | `http://localhost:11434` | Where a local Ollama is reached |
+| `LOG_LEVEL` | `INFO` | Log verbosity |
 
-Provider API keys are deliberately **not** environment variables — each user
-adds their own in the UI.
+Provider keys are deliberately not environment variables: each user adds their
+own in the app.
 
-### Add a provider key
+### Add a model
 
-Generation stays disabled until there is a key. Open **Profile → AI Providers**,
-pick a provider and model, paste the key, and click **Add & verify key**. The
-key is checked against the provider before it is saved, so a bad one fails
-immediately instead of halfway through a generation.
+Open **Settings → AI models**, choose a provider and a model, and paste a key.
+The key is verified with the provider before it is saved, so a bad key fails
+immediately rather than halfway through a run.
+
+### Write your first document
+
+1. **Start a document** from Projects with a topic. In the empty document,
+   **Build with AI** (or the Outline tab) proposes an outline.
+2. **Shape the outline** in the rail, or ask the Outline tab to restructure it.
+3. **Add context** (optional): pages for the model to read, in the Context tab.
+4. **Write.** The Write tab writes every empty section; the ✦ on a rail row
+   opens it for just that section.
+5. **Edit.** Type `/` for constructs, select text and press `⌘J` to refine it.
+6. **Keep versions.** The page is kept before and after every AI run. Branch to
+   try an alternative, and merge back what works.
+7. **Share.** Invite a co-author, add an AI collaborator, export, or publish.
 
 ---
 
-## Your first document
-
-1. **Start a document** and give it a topic. Topical proposes a section tree.
-2. **Shape the outline** in the right-hand rail — reorder, nest, rename, add,
-   or ask for a refinement pass. The rail is where structure and generation
-   meet; everything else follows from what's in it.
-3. **Write a section.** Pick its grounding (model, web crawl, or your own URLs),
-   optionally attach an instruction, and place the draft where you want it.
-4. **Edit.** `/` for constructs, `⌘J` for AI on a selection, `⌘F` to find and
-   replace. The preview keeps up.
-5. **Share.** Invite a co-author, export `.md` / `.tex`, print to PDF, or
-   publish to the community library.
-
----
-
-## Working on the code
+## Development
 
 ```bash
 source .venv/bin/activate
@@ -235,88 +350,97 @@ source .venv/bin/activate
 
 | Command | What it does |
 |---|---|
-| `python -m backend` | Backend only, with reload |
-| `cd frontend && npm run dev` | Frontend only |
+| `python -m backend` | Run the backend alone, with reload |
+| `cd frontend && npm run dev` | Run the frontend alone |
 | `cd frontend && npx tsc --noEmit` | Typecheck |
-| `cd frontend && npm run lint` | Lint (zero-warning policy) |
-| `cd frontend && npm run build` | Production bundle |
-| `alembic revision --autogenerate -m "…"` | Migration from model changes |
-| `alembic upgrade head` / `alembic downgrade -1` | Apply / undo |
+| `cd frontend && npm run lint` | Lint (no warnings allowed) |
+| `cd frontend && npm run build` | Production bundle into `frontend/dist` |
+| `alembic revision --autogenerate -m "…"` | Create a migration from model changes |
+| `alembic upgrade head` / `alembic downgrade -1` | Apply or undo migrations |
+| `python -m backend.cli writing-check FILE.md` | Score a document's prose: sentence length, reading ease, maths density, stock phrases, wording repeated between sections |
+| `TOPICAL_AI_KEY=… python -m backend.cli writing-check --topic "…" --sections "A,B,C" --provider groq --model …` | Write those sections with a real model through the full pipeline, print them, and score them |
 
-With the backend running, **http://localhost:3000/docs** is the full route list
-with request and response schemas, and `/health` reports whether the database is
+With the backend running, **http://localhost:3000/docs** lists every route with
+its request and response schemas, and `/health` reports whether the database is
 configured.
 
-There is no automated test suite yet. If you are changing something with real
-consequences — auth, the CRDT room lifecycle, the LaTeX renderer — expect to
-verify it by hand, and adding tests alongside is welcome.
+There is no automated test suite yet. Changes to authentication, the
+collaboration rooms, the LaTeX renderer, or the history graph should be
+verified by hand, and tests added alongside them are welcome. Use
+`writing-check` to measure a prompt change on real output.
 
-### Layout
+### Project layout
 
 ```
 backend/
-  main.py                 app factory: middleware, routers, static — in assembly order
-  api/routes/             HTTP only — one module per resource, gathered under /api
-  services/               what the app does, framework-free
-    ai/                   prompts, provider routing, crawling, generation
-  db/models/              the tables
-  auth/                   passwords, sessions, the current-user dependency
-  realtime/yjs.py         collaboration rooms and the y-protocols wire format
-  core/                   settings, errors, logging, validation
-  cli.py                  administrative commands
-alembic/versions/         migrations
+  main.py               app factory: middleware, routers, static files
+  api/routes/           HTTP only, one module per resource, mounted under /api
+  services/             application logic, independent of the web framework
+    ai/                 prompts, providers, web reading, generation;
+                        shape.py repairs answers, quality.py checks them
+    versions.py         the history graph: snapshots, restore, fork, switch
+  db/models/            SQLAlchemy models
+  auth/                 passwords, sessions, the current-user dependency
+  realtime/             collaboration rooms and the y-protocols wire format
+  core/                 settings, errors, rate limits, logging
+  cli.py                administrative and diagnostic commands
+alembic/versions/       migrations
 
 frontend/src/
-  features/editor/        the writing screen — components, hooks, and pure lib/
-  features/preview/       rendering; latex/ is parser → preamble → renderer
-  features/home/          the landing page and its live demo
-  components/ui/          shared primitives
-  routes/                 TanStack Router file routes
-  lib/                    API client, auth context, types, document URLs
-  styles/                 split by what the rules describe; index.css sets cascade order
+  features/editor/      the document screen
+    ai/                 the AI panel's tabs, the job queue, AI collaborators
+    live/               the CodeMirror live surface and its widgets
+    components/history/ the version graph, changes view and merge pane
+    hooks/, lib/        state and pure document operations
+  features/preview/     rendering for readers, print and PDF (latex/ is the LaTeX pipeline)
+  features/settings/    profile, AI models, writing, appearance, account
+  features/home/        the landing page
+  components/ui/        shared interface primitives
+  routes/               TanStack Router file routes
+  lib/                  API client, auth, document URLs, table parsing
+  styles/               stylesheets; index.css sets the cascade order
 ```
 
-### Conventions that hold it together
+### Conventions
 
-- **The backend's layers depend downward only.** A service never imports
-  FastAPI; a route never writes SQL. That is what lets a service be called from
-  a script, a worker or a test rather than only from inside a request.
-- **Editor text operations are pure functions** over `(document, selection)` in
-  `features/editor/lib/textOps.ts`. The toolbar, the shortcuts, the `/` menu and
-  the AI panels all drive the same behaviour because they all call the same
-  functions.
-- **An outline in the rail is not the document's outline.** `PlanItem[]` is a
-  flat list with an explicit level, representing structure that does *not* exist
-  on the page yet. The document's actual outline is read from its headings
-  (`sections.ts`).
+- **Layers depend downward only.** A service never imports FastAPI, and a route
+  never writes SQL. Services can be called from a script, a worker or a test.
+- **Document operations are pure functions** over text and selection
+  (`features/editor/lib/`). The toolbar, shortcuts, `/` menu and AI panels all
+  call the same functions.
+- **The outline is read from the document's headings.** A proposed outline is a
+  flat list with explicit levels until it is applied.
 - **One address per document.** `lib/documentUrl.ts` is the only place a
-  document URL is built. The address names the document; the server's `access`
-  verdict (`owner` / `co-author` / `reader`) decides what you may do with it.
+  document URL is built; the server's access verdict (`owner`, `co-author` or
+  `reader`) decides what the visitor can do.
+- **Interfaces are built from the shared primitives** in `components/ui` and the
+  design tokens in `styles/tokens.css`, and must work in both light and dark
+  themes. `.claude/skills/uiux/` holds the catalogue and the audit rules.
 
-### AI endpoints
+### Notes before changing things
 
-All `POST` under `/api/ai/`, session required. Each reads the provider, model
-and key from the `X-AI-Provider`, `X-AI-Model` and `X-AI-Api-Key` headers; the
-key is used for that one call and never stored or logged.
-
-| Endpoint | Purpose |
-|---|---|
-| `search-topics` | Build the section hierarchy for a subject |
-| `outline-from-document` | The outline an existing draft is reaching for |
-| `refine-outline` | Restructure an outline, with a reason for each change |
-| `generate-section` | Write one section |
-| `transform` | Rewrite, extend or explain a selected passage |
-
-`generate-section` takes `format` (`mdx` | `latex`) and `source` (`llm`, `web`
-or `urls`) rather than being six near-identical endpoints. Provider failures map
-to real statuses — `401` rejected key, `429` rate limit, `404` unknown model,
-`502` malformed response, `504` timeout — with messages that are safe to show a
-user. Capacity errors, rate limits and timeouts are retried with backoff before
-any of that.
+- **Authentication.** Passwords are hashed with Argon2id. Sessions are opaque
+  tokens stored only as SHA-256 hashes and sent in an httpOnly, `SameSite=Lax`
+  cookie, which is also the CSRF defence. Sign-in failures take the same time
+  and shape whether or not the account exists. Sign-in, registration and
+  password changes are rate limited.
+- **Request limits.** Bodies over 8 MB are refused. Uploads must be images
+  (JPEG, PNG, GIF, WebP or SVG), and their bytes must match the format they
+  claim. Context-page fetches refuse private and loopback addresses.
+- **Latency.** The database is often in a different region from the server.
+  The connection pool is warmed at start-up, `pool_pre_ping` is off in favour
+  of `pool_recycle`, and session activity is written at most hourly.
+- **Rate limits are not retried on the server.** A provider's per-minute token
+  limit is not lifted by retrying a second later. The backend returns `429`
+  with the provider's `Retry-After`, and the editor's queue waits that long.
+  Capacity errors and timeouts are retried with backoff.
+- **Tables with maths.** GFM splits a table row on every `|` before it reads
+  maths, so `$|V|$` in a cell used to add columns. `lib/markdownTables.ts`
+  splits rows treating a `|` inside maths, code or `\|` as content. The reading
+  view rewrites those bars to `\vert` before rendering, and the AI pipeline
+  writes them that way to begin with.
 
 ### Administration
-
-Things no signed-in user should be able to do:
 
 ```bash
 python -m backend.cli list-users
@@ -332,60 +456,92 @@ python -m backend.cli prune-sessions
 
 `set-password` takes `--create` to make the account if it does not exist.
 
-### Notes worth reading before you change things
+---
 
-- **Authentication.** Argon2id hashes carry their own cost parameters. Sessions
-  are opaque 32-byte tokens stored only as SHA-256 in `auth_sessions` and
-  delivered in an httpOnly, `SameSite=Lax` cookie — which is also the CSRF
-  defence. Failed sign-ins are constant-shape and constant-time, so the login
-  form is not a register of who holds an account. User ids are uuid4 hex, not
-  serials, because they appear in URLs and in co-author arrays.
-- **Collaboration state is in memory.** A Yjs room is discarded 30 seconds after
-  its last connection leaves. The durable copy is saved through the REST API —
-  `realtime/` is never the source of truth.
-- **Grounding degrades rather than fails.** If Crawl4AI is not importable or its
-  browser is missing, `services/ai/crawl.py` falls back to urllib +
-  BeautifulSoup. Every blocking fetch is pushed to a worker thread; awaiting one
-  inline would stall every concurrent request.
-- **Interface material.** `styles/glass.css` loads late and re-skins surfaces the
-  earlier files have already laid out, so it must win their background, border
-  and shadow — `index.css` is the only place that order lives. The rule it
-  enforces: glass goes on chrome that floats *over* content, never on a card
-  sitting on flat page ground. Glass is never nested, every pane keeps a
-  hairline, and `@supports` / `prefers-reduced-transparency` fall back to opaque
-  surfaces with the same layout.
-- **Latency.** The database is usually in a different region from the server, so
-  three things are load-bearing: the pool is warmed at boot (`warm_pool`),
-  `pool_pre_ping` is off in favour of `pool_recycle`, and `last_seen_at` is
-  written at most hourly (`_TOUCH_INTERVAL` in `backend/auth/session.py`).
-- **Connection strings.** `DATABASE_URL` is written in ordinary `postgresql://`
-  form and translated for asyncpg in `backend/core/config.py`, which also drops
-  libpq-only parameters like `sslmode`.
+## API reference
+
+All routes are under `/api` and return JSON unless noted. The full schema is
+served at `/docs`.
+
+### Documents and history
+
+| Route | Purpose |
+|---|---|
+| `GET` / `POST /lessonPlans` | Your documents; create one |
+| `PUT` / `DELETE /lessonPlans/{id}` | Save; delete |
+| `GET /lessonPlans/{id}/shared` | A document and the visitor's access to it |
+| `GET /lessonPlans/public` | The community library |
+| `GET` / `POST /lessonPlans/{id}/versions` | The history graph; take a snapshot on the current branch |
+| `GET` / `PATCH` / `DELETE /lessonPlans/{id}/versions/{v}` | A version with its text; name it; delete it (neighbouring versions are re-linked; a version a branch starts from is kept) |
+| `POST /lessonPlans/{id}/versions/{v}/restore` | Bring a version back as a new step |
+| `POST /lessonPlans/{id}/branches` | Start a branch from a version, optionally moving the document onto it |
+| `POST /lessonPlans/{id}/branches/{b}/checkout` | Move the document onto a branch |
+| `PATCH` / `DELETE /lessonPlans/{id}/branches/{b}` | Rename; delete (not the current branch, nor one another branch grew from) |
+
+History routes are available to the owner and co-authors only.
+
+### AI
+
+`POST` routes under `/api/ai/`, for signed-in users. Each reads the provider,
+model and key from the `X-AI-Provider`, `X-AI-Model` and `X-AI-Api-Key`
+headers.
+
+| Route | Purpose |
+|---|---|
+| `search-topics` | An outline for a subject |
+| `outline-from-document` | The outline a draft is reaching for (long drafts are sent as a digest of every heading) |
+| `refine-outline` | A restructured outline, with a reason for each change |
+| `generate-section` | One section, repaired and checked (plain text) |
+| `transform` | A rewrite, continuation or explanation of a passage, repaired and checked (plain text) |
+| `review` | An AI collaborator's suggestions for one section, each quoting the exact text it changes |
+| `sources` | Pages worth adding to the context |
+| `models`, `verify-key` | A key's live model list; a check before a key is saved |
+
+Provider failures are returned with meaningful statuses (`401` rejected key,
+`404` unknown model, `429` rate limit with `Retry-After`, `502` malformed
+answer, `504` timeout) and messages that are safe to show to a user.
+
+### Accounts, files and community
+
+| Route | Purpose |
+|---|---|
+| `POST /auth/register`, `/auth/login`, `/auth/logout`, `/auth/password` | Accounts and sessions |
+| `GET /me`, `PATCH /profile` | The signed-in user |
+| `POST /files/upload`, `GET /files/{name}` | Image uploads |
+| `GET /people`, `GET /people/{username}`, `GET /search/username` | Public profiles and author search |
+| `GET` / `POST /posts`, `GET` / `DELETE /posts/{id}` | Forum posts |
+| `POST /posts/{id}/comments`, `DELETE /posts/{id}/comments/{c}`, `POST /posts/{id}/vote` | Comments and votes |
+
+The collaboration socket is `/ws/doc/{id}`, open to the owner and co-authors.
 
 ---
 
-## Deploying
+## Deployment
 
 The `Dockerfile` builds the frontend into the Python image, so one container
-serves everything. Migrations run at boot, and the baseline revision adopts an
-existing schema rather than recreating it, so restarting is safe.
+serves everything. Migrations run at start-up and are safe to repeat.
 
 ```bash
 docker build -t topical .
 ```
 
 ```bash
-docker run -p 3000:3000 -e DATABASE_URL=postgres://... -v topical_uploads:/app/uploads topical
+docker run -p 3000:3000 -e DATABASE_URL=postgresql://... -v topical_uploads:/app/uploads topical
 ```
 
-`fly.toml` is configured for the same image; set the database as a secret with
-`fly secrets set DATABASE_URL=…`. Two things to remember:
+`fly.toml` deploys the same image to Fly.io. Set the database as a secret:
 
-- **Uploaded images are on disk.** Mount a volume at `/app/uploads` or they
-  vanish on deploy.
-- **Collaboration rooms live in memory.** A second machine has its own rooms and
-  a stopped machine loses whatever was open on it, which is why `fly.toml` keeps
-  `min_machines_running = 1`.
+```bash
+fly secrets set DATABASE_URL=postgresql://...
+```
+
+Two things to plan for:
+
+- **Uploaded images are on disk.** Mount a volume at `/app/uploads`, or they
+  are lost on the next deploy.
+- **Collaboration rooms are in memory.** Each machine has its own rooms, and a
+  stopped machine loses open sessions' unsaved state. `fly.toml` keeps one
+  machine running for this reason.
 
 ---
 

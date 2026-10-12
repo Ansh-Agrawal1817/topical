@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, List
+from typing import Any, Awaitable, Callable, List, Optional, Tuple
 
 from ...core.errors import AppError
 from ...schemas.ai import (
@@ -25,7 +25,10 @@ from ...schemas.ai import (
 )
 from .crawl import crawl_for_topic, crawl_pages, relevant_passages, search_sources
 from .prompts import (
+    TRANSFORM_ACTIONS,
+    TRANSFORM_BRIEF,
     review_prompt,
+    section_system,
     outline_from_document_prompt,
     refine_outline_prompt,
     section_prompt,
@@ -35,8 +38,9 @@ from .prompts import (
     transform_prompt,
     trim_echo,
 )
+from .quality import Issue, better, check_fragment, check_section, clean_title, revision_note, serious
 from .shape import shape_fragment, shape_section
-from .providers import AiCredentials, check_credentials, endpoint, generate_content, list_models
+from .providers import AiCredentials, Completion, check_credentials, complete, endpoint, generate_content, list_models
 
 logger = logging.getLogger(__name__)
 
@@ -104,9 +108,37 @@ def _parse_topic_json(text: str) -> List[dict]:
     if not isinstance(parsed, list) or not all(isinstance(item, dict) for item in parsed):
         raise json.JSONDecodeError("expected a list of topic objects", str(text)[:200], 0)
 
+    parsed = _clean_topics(parsed)
+    if not parsed:
+        raise json.JSONDecodeError("the outline had no usable titles", str(text)[:200], 0)
     for i, item in enumerate(parsed):
         item.setdefault("relevanceScore", max(60, 95 - i * 5))
     return parsed
+
+
+def _clean_topics(items: list) -> list:
+    """A generated outline with every title made heading-shaped, empty rows dropped and repeats removed.
+
+    Models number their rows ("1. Basics"), wrap them in bold, end them with a
+    colon, and now and then list the same subsection twice. Each would land in
+    the document as a heading exactly as sent.
+    """
+    out: list = []
+    seen: set = set()
+    for item in items:
+        if isinstance(item, dict):
+            title = clean_title(item.get("topic", ""))
+            subs = _clean_topics(item.get("subtopics") or [])
+            if not title or title.lower() in seen:
+                continue
+            seen.add(title.lower())
+            out.append({**item, "topic": title, "subtopics": subs})
+        elif isinstance(item, str):
+            title = clean_title(item)
+            if title and title.lower() not in seen:
+                seen.add(title.lower())
+                out.append(title)
+    return out
 
 
 def _parse_json_object(text: str) -> dict:
@@ -195,17 +227,13 @@ async def refine_outline(req: RefineOutlineRequest, *, credentials: AiCredential
         _parse_json_object,
     )
 
-    outline = [
-        {"title": str(row.get("title", "")).strip(), "level": int(row.get("level", 1) or 1)}
-        for row in parsed.get("outline", [])
-        if str(row.get("title", "")).strip()
-    ]
+    outline = _outline_rows(parsed.get("outline", []))
     if not outline:
         raise AppError("The model returned an empty outline. Try again.", 502)
 
     changes = [
         {
-            "title": str(row.get("title", "")).strip(),
+            "title": clean_title(row.get("title", ""), numbering=False),
             "kind": str(row.get("kind", "moved")).strip().lower(),
             "reason": str(row.get("reason", "")).strip(),
             "from": str(row.get("from") or "").strip(),
@@ -218,6 +246,47 @@ async def refine_outline(req: RefineOutlineRequest, *, credentials: AiCredential
         "outline": outline,
         "changes": changes,
     }
+
+
+def _outline_rows(rows: Any) -> List[dict]:
+    """A proposed outline the rail can draw: titled rows whose depth never jumps more than one."""
+    out: List[dict] = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        title = clean_title(row.get("title", ""), numbering=False)
+        if not title:
+            continue
+        try:
+            level = int(row.get("level", 1) or 1)
+        except (TypeError, ValueError):
+            level = 1
+        ceiling = (out[-1]["level"] + 1) if out else 1
+        out.append({"title": title, "level": max(1, min(level, ceiling, 6))})
+    return out
+
+
+# ── Checked answers ──────────────────────────────────────────────────────
+Finish = Callable[[Completion], Tuple[str, List[Issue]]]
+
+
+async def _checked(prompt: str, system: str, credentials: AiCredentials, finish: Finish) -> str:
+    """Ask, check the answer, and ask once more with the problems named if it is not usable.
+
+    The second answer replaces the first unless it is worse. Asking a third
+    time is not done: a model that fails the same check twice will fail it a
+    third time, and every attempt is a full round trip against a rate limit.
+    What remains wrong is logged, not hidden.
+    """
+    text, issues = finish(await complete(prompt, credentials, system=system))
+    if serious(issues):
+        logger.info("answer not usable (%s); asking again", ", ".join(i.code for i in serious(issues)))
+        retry, retry_issues = finish(await complete(prompt + revision_note(issues), credentials, system=system))
+        if better(issues, retry_issues):
+            text, issues = retry, retry_issues
+    if issues:
+        logger.info("answer kept with: %s", ", ".join(i.code for i in issues))
+    return text
 
 
 # ── Long-form generation ─────────────────────────────────────────────────
@@ -278,11 +347,21 @@ async def generate_section(req: GenerateSectionRequest, *, credentials: AiCreden
         style_sample=req.style_sample or "",
         lead_in=req.lead_in or "",
         labels=req.labels,
+        covered=req.covered or "",
     )
-    text = strip_fences((await generate_content(prompt, credentials)).strip(), req.format)
-    # Atomic and renderable, whatever the model did: nothing at or above
-    # this heading's level, an introduction only where sub-sections exist.
-    return shape_section(text, req.format, level=req.level, title=req.topic, has_children=bool(req.children))
+    has_children = bool(req.children)
+
+    def finish(answer: Completion) -> Tuple[str, List[Issue]]:
+        raw = strip_fences(answer.text.strip(), req.format)
+        # Atomic and renderable, whatever the model did: nothing at or above
+        # this heading's level, an introduction only where sub-sections exist.
+        shaped = shape_section(raw, req.format, level=req.level, title=req.topic, has_children=has_children)
+        return shaped, check_section(
+            shaped, raw=raw, fmt=req.format, title=req.topic, has_children=has_children,
+            truncated=answer.truncated, instruction=req.instruction or "",
+        )
+
+    return await _checked(prompt, section_system(req.format), credentials, finish)
 
 
 # ── Inline editing — the selection actions in the editor ─────────────────
@@ -302,10 +381,18 @@ async def transform(req: TransformRequest, *, credentials: AiCredentials) -> str
         previous=req.previous or "",
         labels=req.labels,
     )
-    text = strip_wrappers(strip_fences(await generate_content(prompt, credentials), req.format))
-    if req.action == "continue":
-        text = trim_echo(req.before or req.selection, text)
-    return shape_fragment(text, req.format, floor=req.level)
+    replaces = TRANSFORM_ACTIONS.get(req.action, TRANSFORM_ACTIONS["custom"])[1]
+
+    def finish(answer: Completion) -> Tuple[str, List[Issue]]:
+        raw = strip_wrappers(strip_fences(answer.text, req.format))
+        if req.action == "continue":
+            raw = trim_echo(req.before or req.selection, raw)
+        shaped = shape_fragment(raw, req.format, floor=req.level)
+        return shaped, check_fragment(
+            shaped, raw=raw, fmt=req.format, truncated=answer.truncated, action=req.action, replaces=replaces,
+        )
+
+    return await _checked(prompt, TRANSFORM_BRIEF, credentials, finish)
 
 
 # ── Review ───────────────────────────────────────────────────────────────

@@ -126,21 +126,32 @@ function escapeRegex(s: string): string {
 }
 
 /**
- * Split on a top-level delimiter, ignoring any occurrence inside braces or a
- * nested environment — how `&` between table cells has to be found.
+ * Split on a top-level delimiter, ignoring any occurrence inside braces, maths
+ * or a nested environment — how `&` between table cells has to be found.
+ *
+ * Maths and environments used to be ignored: a cell holding
+ * `$\begin{pmatrix} a & b \end{pmatrix}$` was split at the matrix's `&` (and
+ * the row at its `\\`), scattering the matrix across the table.
  */
 export function splitTopLevel(src: string, delimiter: RegExp): string[] {
   const parts: string[] = [];
   let depth = 0;
+  let envDepth = 0;
+  let inMath = false;
   let last = 0;
   const scan = new RegExp(delimiter.source, 'g');
+  const top = () => depth === 0 && envDepth === 0 && !inMath;
 
   for (let i = 0; i < src.length; i++) {
     const ch = src[i];
     if (ch === '\\') {
+      if (src.startsWith('\\begin{', i)) { envDepth++; i += 5; continue; }
+      if (src.startsWith('\\end{', i)) { envDepth = Math.max(0, envDepth - 1); i += 3; continue; }
+      if (src[i + 1] === '(' || src[i + 1] === '[') { inMath = true; i++; continue; }
+      if (src[i + 1] === ')' || src[i + 1] === ']') { inMath = false; i++; continue; }
       scan.lastIndex = i;
       const hit = scan.exec(src);
-      if (hit && hit.index === i && depth === 0) {
+      if (hit && hit.index === i && top()) {
         parts.push(src.slice(last, i));
         i = hit.index + hit[0].length - 1;
         last = i + 1;
@@ -149,9 +160,10 @@ export function splitTopLevel(src: string, delimiter: RegExp): string[] {
       i++;
       continue;
     }
+    if (ch === '$') { inMath = !inMath; continue; }
     if (ch === '{') depth++;
     else if (ch === '}') depth--;
-    else if (depth === 0) {
+    else if (top()) {
       scan.lastIndex = i;
       const hit = scan.exec(src);
       if (hit && hit.index === i) {

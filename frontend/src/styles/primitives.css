@@ -681,3 +681,69 @@
 }
 /* The box underneath draws the focus; the transparent field's own ring would be a second. */
 .ghost-field > .ghost-input:focus-visible { outline: none; }
+
+
+/* ── Diff (components/ui/diff.tsx) ──
+   Word-level runs inline (cuts struck in rose, additions washed in green) and
+   line-level rows with a gutter mark. The block around a DiffText owns the
+   typeface; these own only what changed. */
+.diff-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff-text del {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+  text-decoration-color: rgb(var(--danger-rgb) / 0.55);
+  background: rgb(var(--danger-rgb) / 0.07);
+}
+.diff-text ins {
+  color: var(--ink);
+  text-decoration: none;
+  background: rgb(var(--success-rgb) / 0.14);
+  box-shadow: inset 0 -1px 0 rgb(var(--success-rgb) / 0.45);
+}
+/* A cut run directly followed by an added one read as one word: "oftenan". */
+.diff-text del + ins { margin-left: 0.25em; }
+.diff-line {
+  display: flex;
+  padding: 0 var(--space-4) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-muted);
+}
+.diff-gutter { flex-shrink: 0; width: calc(var(--space-6) + var(--space-1)); text-align: center; color: var(--ink-ghost); user-select: none; }
+.diff-line-text { min-width: 0; flex: 1; }
+.diff-line[data-kind='added'] { color: var(--ink); background: rgb(var(--success-rgb) / 0.1); }
+.diff-line[data-kind='added'] .diff-gutter { color: var(--status-success); }
+.diff-line[data-kind='cut'] { color: var(--ink-2); background: rgb(var(--danger-rgb) / 0.08); }
+.diff-line[data-kind='cut'] .diff-gutter { color: var(--status-danger); }
+/* A whole changed line with no word runs: the line itself is the change. */
+.diff-line[data-kind='cut'] > .diff-line-text:not(:has(.diff-text)) {
+  text-decoration: line-through;
+  text-decoration-color: rgb(var(--danger-rgb) / 0.5);
+}
+.diff-fold {
+  margin: var(--space-1) var(--space-4) var(--space-1) calc(var(--space-6) + var(--space-1));
+  padding: var(--space-0-5) var(--space-2);
+  border-top: 1px dashed var(--line-soft);
+  border-bottom: 1px dashed var(--line-soft);
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
+  color: var(--ink-faint);
+}
+
+/* ── Dialog size="workspace" (components/ui/dialog.tsx) ── */
+.dialog-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: min(1120px, calc(100vw - var(--space-8)));
+  max-width: none;
+  height: min(780px, calc(100dvh - var(--space-12)));
+  padding: 0;
+  overflow: hidden;
+}
+@media (max-width: 640px) {
+  .dialog-workspace { width: 100vw; height: 100dvh; border-radius: 0; }
+}

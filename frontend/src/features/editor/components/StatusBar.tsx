@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { History, Sparkles, Wifi, WifiOff } from 'lucide-react';
+import { GitBranch, History, Sparkles, Wifi, WifiOff } from 'lucide-react';
 import { Spinner } from '@/components/ui';
 import type { DocFormat } from '@/lib/types';
 import type { SaveState } from '../hooks/useDocument';
@@ -19,6 +19,8 @@ interface Props {
   format: DocFormat;
   /** Open the version history. Absent where there is none to show (reading). */
   onHistory?: () => void;
+  /** The branch of the history the document is on — shown when it is not the first one. */
+  branch?: string;
   /** Open AI suggestions waiting, and whether a reviewer is reading right now. */
   suggestions?: number;
   reviewing?: boolean;
@@ -53,7 +55,7 @@ function useMinuteClock(active: boolean): number {
 
 /** Ambient feedback while writing: length, position, save and session state. */
 export function StatusBar({
-  editing, saveState, lastSavedAt, stats, line, column, selectedWords, connected, peerCount, format, onHistory, suggestions = 0, reviewing, onSuggestions,
+  editing, saveState, lastSavedAt, stats, line, column, selectedWords, connected, peerCount, format, onHistory, branch, suggestions = 0, reviewing, onSuggestions,
 }: Props) {
   const now = useMinuteClock(editing && saveState === 'saved' && lastSavedAt !== null);
   return (
@@ -74,6 +76,14 @@ export function StatusBar({
           <span className="editor-status-dot" data-state={saveState} aria-hidden="true" />
           <span role="status" aria-live="polite" data-state={saveState}>{savedLabel(saveState, lastSavedAt, now)}</span>
           <History className="h-3 w-3 opacity-70" aria-hidden="true" />
+        </button>
+      )}
+      {/* "main" goes unsaid; any other branch is worth knowing you are on. */}
+      {editing && branch && branch !== 'main' && (
+        <button type="button" className="editor-status-item editor-status-button" onClick={onHistory}
+          disabled={!onHistory} title={`On the branch “${branch}” — open the history to switch`} aria-label={`On the branch ${branch}. Open version history`}>
+          <GitBranch className="h-3 w-3" aria-hidden="true" />
+          <span className="editor-status-branch">{branch}</span>
         </button>
       )}
       {/* `--aux` marks the readings that are nice to have rather than needed.

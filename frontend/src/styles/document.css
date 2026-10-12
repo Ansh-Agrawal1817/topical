@@ -214,6 +214,8 @@
   background: var(--ink-a02);
   border-bottom: 1px solid var(--line);
 }
+.md-table-wrap th,
+.md-table-wrap td { min-width: 7ch; vertical-align: top; overflow-wrap: normal; word-break: normal; }
 .md-table-wrap td { padding: 9px 13px; border-bottom: 1px solid var(--line-soft); color: var(--ink-2); }
 .md-table-wrap tr:last-child td { border-bottom: none; }
 

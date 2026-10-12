@@ -47,6 +47,8 @@ export interface SectionRequest {
   leadIn?: string;
   /** LaTeX labels already in the document, to reference and not redefine. */
   labels?: string[];
+  /** What the written sections define, one line each — see `coveredDigest`. */
+  covered?: string;
 }
 
 /** Generate one section, cleaned of any frontmatter the model added. */
@@ -83,6 +85,7 @@ export async function generateSection(req: SectionRequest): Promise<string> {
     style_sample: req.styleSample,
     lead_in: req.leadIn,
     labels: req.labels,
+    covered: req.covered,
   });
 
   return stripFrontmatter(raw);

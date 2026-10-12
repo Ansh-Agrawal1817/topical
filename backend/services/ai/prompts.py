@@ -22,7 +22,9 @@ RENDER_RULES = {
         "No HTML tags, no JSX or components, no import/export lines, no frontmatter, "
         "no Mermaid. Maths only as $...$ inline and $$...$$ on lines of their own — never "
         "\\( \\) or \\[ \\] — using only commands KaTeX supports (no \\label, \\ref, "
-        "\\begin{align} outside $$, \\newcommand). Every $ and $$ must close."
+        "\\begin{align} outside $$, \\newcommand). Every $ and $$ must close. "
+        "Inside a table cell never write a bare |: in maths write \\vert (e.g. $\\vert V\\vert$) or \\mid, "
+        "in text write \\|."
     ),
     "latex": (
         "LaTeX body only, as rendered by Topical's subset renderer: \\section family, "
@@ -139,54 +141,59 @@ def _leave_to_children(children: Optional[List[str]]) -> str:
     )
 
 
+#: The house style every section is written in, sent as the system message.
+#:
+#: Written against what the first generated documents actually read like: a
+#: graduate reference manual — dense formal definitions before any intuition,
+#: invented notation ($G^{\!*}$), "iff", a table where two sentences would do,
+#: a "Key takeaways" block closing every section, and the stock phrases that
+#: mark text as generated. The default reader is a motivated newcomer; a
+#: writer who wants expert density says so, and their instruction wins.
+WRITING_BRIEF = """You are the author of a document being written in Topical, one section at a time. Every section must read as part of one book by one careful, human author.
+
+Who you write for: a motivated newcomer to the subject — curious and capable, but not a specialist. They will follow a careful argument; they should never have to decode one. If the writer asks for a different audience, register or length, do what they ask.
+
+How to write:
+1. Open with the idea itself, in plain words: what it is and why it matters. Give the intuition before the formal statement, not instead of it.
+2. Make it concrete. Use a small example, a worked case or a familiar comparison wherever the subject allows, and walk through it.
+3. Define every technical term and every symbol the first time you use it. Prefer a clear phrase to a symbol; use notation only where it genuinely helps.
+4. Keep the document's existing notation and terminology. Never invent new notation.
+5. Write in paragraphs of two to five sentences, and vary sentence length. Explain why as well as what, and connect each step to the one before.
+6. Use a list only for content that really is a list: steps, or parallel options. Use a table only to compare three or more items across two or more attributes, never to hold definitions that read better as prose.
+7. Stop when the content is done, on a complete sentence that finishes the last idea. Do not end with a summary, a recap, "key takeaways", "in conclusion", or a preview of what comes next.
+8. Write as the author, not as an assistant. Never write "In this section we will…" or "Let's dive in". Never mention the outline, section numbers, yourself or these instructions.
+9. Say things plainly and specifically. Avoid stock phrasing such as "delve", "crucial", "plays a vital role", "in the realm of", "it is worth noting", "a testament to", "tapestry", "landscape", "seamless", "navigate the complexities" and "in today's world".
+10. Be accurate. Where something is uncertain or disputed, say so. Never invent facts, figures, dates, quotations or references.
+11. Use ordinary characters: plain hyphens (-), spaces and quotes. No non-breaking hyphens or invisible characters.
+
+Return only the section's text, in the document's markup as specified below: no code fence around the whole answer, no preamble and no closing remarks."""
+
+def section_system(fmt: str) -> str:
+    """The system message for writing a section: the house style, then the notation."""
+    markup = (
+        f"Markup: {RENDER_RULES['latex']} {LATEX_REFERENCES}" if fmt == "latex"
+        else f"Markup: {RENDER_RULES['mdx']}"
+    )
+    return f"{WRITING_BRIEF}\n\n{markup}"
+
+
 @dataclass(frozen=True)
 class _SectionFormat:
-    """Everything the section prompt has to say differently per output format.
-
-    MDX and LaTeX ask for the same document — same length, same structure, same
-    prohibition on covering a child's material — in two notations. Holding the
-    differences in one table keeps the shared instructions literally shared, so
-    a wording fix cannot land in one format and be forgotten in the other.
-    """
+    """What the section prompt has to say differently per output format."""
 
     name: str
-    #: The bullet that pins down the notation itself.
-    syntax_rule: str
     #: How this format spells a heading at a given depth.
     heading: Callable[[str, int], str]
-    #: How it names the sub-headings a full section should contain.
-    deeper_rule: Callable[[int], str]
-    #: The structural devices worth reaching for.
-    devices: str
-    #: Rules that exist only in this format.
-    extra_rules: Tuple[str, ...]
-    #: The closing "return only ..." instruction.
-    closing: str
-    #: What an introduction must not contain.
-    intro_ban: str
+    #: The deepest heading level the format has.
+    max_level: int
+    #: How it marks a new part without a heading.
+    lead_in: str
 
 
 SECTION_FORMATS: Dict[str, _SectionFormat] = {
-    "mdx": _SectionFormat(
-        name="MDX",
-        syntax_rule=RENDER_RULES["mdx"],
-        heading=_mdx_heading,
-        deeper_rule=lambda level: f"3-5 sub-headings one level deeper ({'#' * min(level + 1, 6)})",
-        devices="Use bullet points, numbered lists, code blocks where appropriate",
-        extra_rules=(),
-        closing="Return ONLY the MDX content",
-        intro_ban="No sub-headings, no lists, no code blocks.",
-    ),
-    "latex": _SectionFormat(
-        name="LaTeX",
-        syntax_rule=RENDER_RULES["latex"] + " " + LATEX_REFERENCES,
-        heading=_latex_heading,
-        deeper_rule=lambda level: f"3-5 subsections one level deeper (\\{_latex_command(level + 1)}{{}})",
-        devices="Use itemize/enumerate, equations, tables where appropriate",
-        extra_rules=(),
-        closing="Return ONLY the LaTeX content (no preamble, no \\begin{document})",
-        intro_ban="No further sectioning commands, no lists.",
-    ),
+    "mdx": _SectionFormat(name="Markdown", heading=_mdx_heading, max_level=6, lead_in="**A bold lead-in.**"),
+    "latex": _SectionFormat(name="LaTeX", heading=_latex_heading, max_level=5,
+                            lead_in="\\textbf{A bold lead-in.}"),
 }
 
 
@@ -206,9 +213,8 @@ def _voice(sample: str) -> str:
     if not sample:
         return ""
     return (
-        "\nHere is some of the document as already written. Match its voice, register, "
-        "sentence length, terminology and the way it writes notation — the new section "
-        "should read as the same author's:\n"
+        "\nHere is some of the document as already written. Keep its terminology, notation and tone so the new "
+        "section reads as the same author's — while following the writing rules:\n"
         f"<sample>\n{sample[:900]}\n</sample>\n"
     )
 
@@ -224,6 +230,24 @@ def _labels_block(labels: Optional[List[str]]) -> str:
     )
 
 
+def _covered(covered: str) -> str:
+    """What the written sections already define — the cure for two sections building the same table.
+
+    The outline says which neighbours are written; it does not say what they
+    contain. Two sibling sections each opened with the same table of
+    simple graphs, multigraphs and pseudographs because neither knew the
+    other had it.
+    """
+    covered = covered.strip()
+    if not covered:
+        return ""
+    return (
+        "\nTerms and ideas the written sections already define. Use them freely, with a few words of reminder at "
+        "most; do not define them again, and do not rebuild their examples or tables:\n"
+        f"<already_defined>\n{covered[:2400]}\n</already_defined>\n"
+    )
+
+
 def _lead_in(text: str) -> str:
     """The end of the text just before this section, so it continues rather than restarts."""
     text = text.strip()
@@ -235,20 +259,32 @@ def _lead_in(text: str) -> str:
     )
 
 
-def _atomic_rule(spec: "_SectionFormat", level: int, has_children: bool) -> str:
-    """The structural promise every section keeps, spelled in the document's own markup."""
+def _structure_rule(spec: _SectionFormat, level: int, has_children: bool) -> str:
+    """The heading rule, spelled in the document's own markup.
+
+    Sub-headings are allowed in a full section, but only below its own level —
+    one at its level or above would split the section or close its parent —
+    and only after an opening paragraph, so the section's own text is never
+    empty. A section's own number comes from the outline, so a heading never
+    carries one.
+    """
     own = spec.heading("…", level).replace("…", "").strip()
-    deeper = spec.heading("…", min(level + 1, 6)).replace("…", "").strip()
     if has_children:
-        return (f"Write prose only below the heading: no headings of any level. "
-                f"The sub-sections already exist and are written separately.")
-    return (f"This section is one unit of the document. Any heading you add must be deeper "
-            f"than {own} (use {deeper} or deeper) — never {own} or anything above it, which "
-            f"would split this section or close its parent.")
+        return "Structure: prose only — no headings of any level, no lists, tables or code."
+    if level >= spec.max_level:
+        return (f"Structure: no headings — {own} is already the deepest level. If the section has distinct parts, "
+                f"start each with a bold lead-in sentence like {spec.lead_in}")
+    deeper = spec.heading("…", level + 1).replace("…", "").strip()
+    return (
+        f"Structure: sub-headings are optional, and most sections need none. If the section has clearly distinct "
+        f"parts, you may add at most three sub-headings, each written as {deeper} — one level below this section's "
+        f"{own}. Never use {own} or any higher level. Open with at least one paragraph before the first sub-heading, "
+        f"and do not number headings."
+    )
 
 
 def _rules_block(rules: List[str]) -> str:
-    return "Requirements:\n" + "\n".join("- " + rule for rule in rules)
+    return "What this section must do:\n" + "\n".join("- " + rule for rule in rules if rule)
 
 
 def section_prompt(
@@ -265,17 +301,21 @@ def section_prompt(
     style_sample: str = "",
     lead_in: str = "",
     labels: Optional[List[str]] = None,
+    covered: str = "",
 ) -> str:
-    """Ask for one section of a document, in whichever notation it is written.
+    """Ask for one section of a document; the house style is ``section_system``.
 
     A section with children gets an *introduction* — its sub-sections are
     written in their own passes, and a parent that explains them puts the same
     prose in the document twice.
 
+    The section's own heading is already on the page, so the model is asked
+    not to write it; an echo is still stripped downstream.
+
     ``instruction`` is what the writer asked for beyond the title — a length, a
-    stance, an audience. It is placed last in the rules and marked as
-    overriding them, because a standing rule the writer has just contradicted
-    ("400-800 words" against "keep this brief") is the one they meant to break.
+    stance, an audience. It is placed last and marked as overriding the rest,
+    because a standing rule the writer has just contradicted ("350-700 words"
+    against "keep this brief") is the one they meant to break.
     """
     spec = section_format(fmt)
     ctx = (
@@ -283,65 +323,52 @@ def section_prompt(
         "only as far as it supports them, and do not copy it verbatim:\n"
         f"<sources>\n{context}\n</sources>\n"
     ) if context else ""
+    ctx += _covered(covered)
     ctx += _lead_in(lead_in)
     ctx += _labels_block(labels) if fmt == "latex" else ""
     ctx += _voice(style_sample)
-    atomic = _atomic_rule(spec, level, bool(children))
     heading = spec.heading(topic, level)
-    #: Stated as an override rather than merged into the list: a request that
-    #: conflicts with a default is the writer correcting the default.
     ask = (
-        f"The writer asked for this specifically — follow it, and where it "
-        f"conflicts with a rule above, it wins: {instruction.strip()}"
+        f"The writer asked for this specifically — follow it, and where it conflicts with anything above, "
+        f"it wins: {instruction.strip()}"
         if instruction.strip() else ""
     )
+    no_heading = (f"Do not write the heading {heading} — the document already has it. Begin with the first "
+                  f"sentence of the text.")
 
     if children:
         return (
-            "You are an expert technical writer working through a document one section at a time.\n\n"
             f'Write the OPENING of the section "{topic}" — its introduction, not the section itself.\n'
-            f'Part of a document about: "{main_topic}"\n'
+            f'The document is about: "{main_topic}".\n'
             f"{_hierarchy_context(topic, hierarchy, section_number)}\n"
             f"{_placement(ancestors)}"
             f"{_leave_to_children(children)}"
             f"{ctx}\n"
             + _rules_block([
-                spec.syntax_rule,
-                f"Start with {heading}",
-                atomic,
-                f"Then 80-150 words of plain prose. {spec.intro_ban}",
-                "Orient the reader: what this section covers, why it matters, and how the "
-                "sub-sections above relate to each other.",
-                "Define any term the sub-sections will assume the reader already knows.",
-                "Do NOT explain, summarise, or preview the sub-sections listed above, or anything "
-                "nested beneath them. They are written separately, and covering them here puts the "
-                "same material in the document twice.",
-                *spec.extra_rules,
-                *([ask] if ask else []),
-                spec.closing,
+                no_heading,
+                "80-150 words that orient the reader: what this part of the document covers, why it matters, "
+                "and how the sub-sections above fit together.",
+                "Define any term all of the sub-sections will rely on.",
+                "Do not explain, summarise or preview the material of the sub-sections — each is written "
+                "separately, and covering it here puts the same material in the document twice.",
+                _structure_rule(spec, level, True),
+                ask,
             ])
         )
 
     return (
-        f"You are an expert technical writer creating educational {spec.name} content.\n\n"
-        f'Generate comprehensive {spec.name} content for the section: "{topic}"\n'
-        f'Part of a document about: "{main_topic}"\n'
+        f'Write the section "{topic}".\n'
+        f'The document is about: "{main_topic}".\n'
         f"{_hierarchy_context(topic, hierarchy, section_number)}\n"
         f"{_placement(ancestors)}"
         f"{ctx}\n"
         + _rules_block([
-            spec.syntax_rule,
-            f"Start with {heading}",
-            atomic,
-            spec.deeper_rule(level),
-            f'STRICTLY relevant to "{topic}". Do not overlap with or redundantly cover other '
-            "sections in the outline — each of them is written separately.",
-            spec.devices,
-            *spec.extra_rules,
-            "Educational, clear, well-structured",
-            "400-800 words",
-            *([ask] if ask else []),
-            spec.closing,
+            no_heading,
+            f'Cover "{topic}" fully, and only it. Other rows of the outline are written in their own passes: '
+            "refer back to a [written] one in a phrase if it helps, but do not re-explain it.",
+            "Length: about 350-700 words — enough to explain it properly, with no padding.",
+            _structure_rule(spec, level, False),
+            ask,
         ])
     )
 
@@ -540,6 +567,17 @@ PRESERVE_RULES = {
 
 def _words(text: str) -> int:
     return len([w for w in text.split() if any(c.isalnum() for c in w)])
+
+
+#: The standing rules for an inline edit, sent as the system message.
+TRANSFORM_BRIEF = (
+    "You are a careful writing collaborator inside a document editor. Whatever you write goes straight into "
+    "someone's document, so it must read as their own prose: natural, specific and complete, with every sentence "
+    "finished. Write as the author, never as an assistant — no preamble, no \"Here is…\", no comments on what "
+    "you changed. Avoid stock phrasing (\"delve\", \"crucial\", \"plays a vital role\", \"it is worth "
+    "noting\", \"a testament to\", \"in the realm of\"). Never invent facts, figures or references. Use "
+    "ordinary characters: plain hyphens, spaces and quotes."
+)
 
 
 def transform_prompt(

@@ -27,8 +27,12 @@ export interface Job {
   kind: JobKind;
   /** What the queue shows: the section's title, the action's name. */
   label: string;
-  /** A source offset for section jobs, so the outline row can show its state. */
-  key?: number;
+  /**
+   * Which section a section job writes — its place in the outline (see
+   * `targetKey`), so the row can show the job's state however far the text
+   * around it has moved.
+   */
+  target?: string;
   /** Jobs started together (a "write all") share one, for one progress bar. */
   batch?: string;
   status: JobStatus;
@@ -78,7 +82,7 @@ export interface AiQueue {
   snapshot: () => Job[];
   /** Add a job; resolves when it finishes, rejects if it fails or is cancelled. */
   add: (spec: {
-    kind: JobKind; label: string; key?: number; batch?: string;
+    kind: JobKind; label: string; target?: string; batch?: string;
     run: (signal: AbortSignal) => Promise<void>;
     on?: JobEvents;
   }) => Promise<void>;
@@ -206,12 +210,12 @@ export function createAiQueue(): AiQueue {
       return () => listeners.delete(listener);
     },
     snapshot: () => jobs,
-    add({ kind, label, key, batch, run, on }) {
+    add({ kind, label, target, batch, run, on }) {
       const id = `job-${++seq}`;
       const promise = new Promise<void>((resolve, reject) => settle.set(id, { resolve, reject }));
       // Nobody has to handle a cancellation they did not ask about.
       promise.catch(() => {});
-      entries.push({ job: { id, kind, label, key, batch, status: 'queued', attempt: 0, queuedAt: Date.now() }, run, on });
+      entries.push({ job: { id, kind, label, target, batch, status: 'queued', attempt: 0, queuedAt: Date.now() }, run, on });
       publish();
       void pump();
       return promise;

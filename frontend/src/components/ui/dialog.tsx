@@ -26,11 +26,13 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 /**
  * `material`: `glass` for a dialog over the page; `solid` for one opened from
  * inside frosted chrome (the editor), where glass inside glass frosts the
- * chrome's own pixels. `size`: sm 28rem · md 32rem · lg 42rem wide.
+ * chrome's own pixels. `size`: sm 28rem · md 32rem · lg 42rem wide · `workspace`
+ * a work surface of its own (version history): nearly the whole window, no
+ * padding, a flex column whose children own their scrolling.
  */
 interface DialogContentProps extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> {
   material?: "glass" | "solid"
-  size?: "sm" | "md" | "lg"
+  size?: "sm" | "md" | "lg" | "workspace"
 }
 
 const DialogContent = React.forwardRef<
@@ -43,7 +45,7 @@ const DialogContent = React.forwardRef<
       ref={ref}
       className={cn(
         material === "glass" ? "dialog-glass" : "dialog-solid",
-        size === "sm" ? "sm:max-w-md" : size === "lg" ? "sm:max-w-2xl" : "",
+        size === "sm" ? "sm:max-w-md" : size === "lg" ? "sm:max-w-2xl" : size === "workspace" ? "dialog-workspace" : "",
         "fixed left-[50%] top-[50%] z-[var(--z-modal)] grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border p-6 duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
         className
       )}

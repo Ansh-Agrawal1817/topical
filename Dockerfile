@@ -36,8 +36,8 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt && \
     apt-get purge -y build-essential && apt-get autoremove -y
 
-# crawl4ai's headless browser. Only the web-grounded generation mode needs it;
-# without it that mode falls back to a plain HTTP fetch.
+# crawl4ai's headless browser, for reading the pages on a document's context
+# shelf. Without it those pages are read with a plain HTTP fetch instead.
 RUN crawl4ai-setup || echo "crawl4ai browser setup skipped; falling back to plain fetch"
 
 COPY backend/ ./backend/

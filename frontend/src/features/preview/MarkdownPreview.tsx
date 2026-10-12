@@ -1,4 +1,4 @@
-import { memo, useState, type ReactNode } from 'react';
+import { memo, useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -6,6 +6,7 @@ import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
 import { Button } from '@/components/ui';
 import { Check, Copy } from 'lucide-react';
+import { protectTableBars } from '@/lib/markdownTables';
 
 interface Props {
   content: string;
@@ -63,6 +64,8 @@ function CopyButton({ text }: { text: string }) {
  * milliseconds; a parent re-rendering for any other reason must not redo it.
  */
 function MarkdownPreviewInner({ content }: Props) {
+  // GFM would split a table row on the bar in `$|V|$`; see `markdownTables`.
+  const source = useMemo(() => protectTableBars(content), [content]);
   const heading = (level: number) =>
     function Heading({ node, children }: { node?: HastNode; children?: ReactNode }) {
       const Tag = `h${level}` as 'h1';
@@ -135,7 +138,7 @@ function MarkdownPreviewInner({ content }: Props) {
           ),
         }}
       >
-        {content}
+        {source}
       </ReactMarkdown>
     </div>
   );

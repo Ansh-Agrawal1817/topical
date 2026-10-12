@@ -2,7 +2,7 @@ import { CONTINUE_COMPLETIONS, REFINE_COMPLETIONS } from './completions';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Check, CornerDownLeft, Copy, RotateCcw, Sparkles, X } from 'lucide-react';
-import { Button, IconButton, Spinner } from '@/components/ui';
+import { Button, DiffText, IconButton, Spinner } from '@/components/ui';
 import { isRejection, transformSelection } from '@/lib/api';
 import type { DocFormat } from '@/lib/types';
 import { AI_ACTIONS, CONTEXT_CHARS, MIN_PASSAGE_WORDS, textAfter, textBefore, type AiAction } from '../lib/aiActions';
@@ -282,11 +282,7 @@ export function RefinePanel({
             </div>
           ) : (
             <div className="ai-result-body" data-view={diff ? view : 'result'}>
-              {diff && view === 'changes'
-                ? diff.map((part, i) => (part.kind === 'same'
-                  ? <span key={i}>{part.text}</span>
-                  : part.kind === 'cut' ? <del key={i}>{part.text}</del> : <ins key={i}>{part.text}</ins>))
-                : result}
+              {diff && view === 'changes' ? <DiffText runs={diff} /> : result}
             </div>
           )}
 

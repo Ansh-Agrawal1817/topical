@@ -1,6 +1,6 @@
 # Primitives catalogue
 
-Live catalogue. **Every new or changed primitive updates this file in the same change.** Last updated 2026-10-09 (cosmic landing: `Depth`, `Waypoint`, `IndexEntry`, `Ledger` added; `FeatureCard` removed).
+Live catalogue. **Every new or changed primitive updates this file in the same change.** Last updated 2026-10-12 (version history: `DiffText`/`DiffLine`/`DiffFold` added; `DialogContent size="workspace"`; `Text as="pre"`).
 
 - **Directory:** `frontend/src/components/ui/`
 - **Index:** `components/ui/index.ts`. Import from `@/components/ui`, never from a file.
@@ -31,7 +31,7 @@ Live catalogue. **Every new or changed primitive updates this file in the same c
 ### Type
 | export | use this when… | variants / props |
 |---|---|---|
-| `Text` | any run of text that is not a heading | `size` 3xs 10 · 2xs 11 · xs 12 · sm 13 · base 15 · md 17 · lg 20 · xl 24 · 2xl 30 (the token ladder), `tone`, `weight`, `leading`, `italic`, `truncate`, `numeric`, `mono`, `icon` (a leading glyph 6px from the text: a count, a meta item), `as` (p/span/div/h2–h4/time…) |
+| `Text` | any run of text that is not a heading | `size` 3xs 10 · 2xs 11 · xs 12 · sm 13 · base 15 · md 17 · lg 20 · xl 24 · 2xl 30 (the token ladder), `tone`, `weight`, `leading`, `italic`, `truncate`, `numeric`, `mono`, `icon` (a leading glyph 6px from the text: a count, a meta item), `as` (p/span/div/h2–h4/time/pre — `pre` + `mono` for source text; add `whitespace-pre-wrap` to wrap) |
 | `Heading` | a heading | `level` 1–4 (the outline) · `size` display (page title) / section (marketing section) / subsection (--text-lg, a section in an app screen) / group (1rem) / card / label (the 10px caps caption over a group) |
 
 ### Controls
@@ -61,6 +61,8 @@ Live catalogue. **Every new or changed primitive updates this file in the same c
 | `Avatar` | a person, anywhere (seeded hue: one person, one colour) | `size` xs 24 · sm 30 · md 44 · lg 64 · xl 88; `shape` rounded/circle; always the person's seeded hue (pass `seed`), `alt` when meaningful; falls back to the initial if the image fails |
 | `DocTypeIcon`, `docTypeVars()` | the MDX/LaTeX format mark | `type`, `size` sm 32 (14px glyph) / md 36 / lg 44 |
 | `ListRow` | one item in a short list inside a panel or dialog (a person found, a person added) | `leading` (avatar/icon), `trailing` (its one action), `variant` plain (hover only) / filled (a chosen item), ref |
+| `DiffText` | a word-level difference set inline (an AI edit, a review suggestion, an edited line) | `runs` (`DiffRun[]`: same/cut/added) or null + `fallback`; the surrounding block owns typeface and size |
+| `DiffLine`, `DiffFold` | a line-level difference (version history) | `DiffLine kind` same/cut/added — tinted, gutter −/+, screen-reader prefix, child may be a `DiffText`; ref. `DiffFold count` folds unchanged lines |
 
 ### Feedback & states
 | export | use this when… | variants |
@@ -79,7 +81,7 @@ Live catalogue. **Every new or changed primitive updates this file in the same c
 ### Overlays
 | export | use this when… | variants |
 |---|---|---|
-| `Dialog`, `DialogTrigger`, `DialogContent`, `DialogHeader`, `DialogFooter`, `DialogTitle`, `DialogDescription`, `DialogClose` | a modal (Radix: focus trap, Escape, return focus) | `DialogContent material` glass (over the page) / solid (opened from frosted chrome), `size` sm/md/lg. On `--z-modal`. Modals with a shape of their own use `Modal` |
+| `Dialog`, `DialogTrigger`, `DialogContent`, `DialogHeader`, `DialogFooter`, `DialogTitle`, `DialogDescription`, `DialogClose` | a modal (Radix: focus trap, Escape, return focus) | `DialogContent material` glass (over the page) / solid (opened from frosted chrome), `size` sm/md/lg / workspace (a work surface: min(1120px, 100vw−2rem) × min(780px, 100dvh−3rem), no padding, flex column, full screen ≤640px). On `--z-modal`. Modals with a shape of their own use `Modal` |
 | `Modal` | a modal whose scrim and panel are the caller's (a sheet, the ⌘K palette, a full-screen menu) | `label` (required: the accessible name), `onClose`, `overlayClassName`, one panel element as the child. Radix supplies the focus trap, `aria-modal`, Escape, scrim click, scroll lock; focus goes to the panel (or an `autoFocus` field) and returns to the opener |
 
 ### Domain components that behave like primitives (outside `components/ui`)
@@ -109,6 +111,8 @@ Live catalogue. **Every new or changed primitive updates this file in the same c
 | control | menu | `MenuPanel` + `MenuItem` | OK |
 | data | table | — (markdown only) | n/a |
 | data | list row / definition list / stat / time | `ListRow` / `DetailRow` / — / `Text as="time"` | PARTIAL / OK / MISSING / OK |
+| data | diff (word / line) | `DiffText` / `DiffLine` + `DiffFold` | OK |
+| data | graph (version lanes) | — (`components/history/VersionGraph.tsx` draws its own SVG and absolutely positioned `.history-row` options) | PARTIAL — feature-styled rows; a listbox-option primitive would cover them |
 | data | tag / avatar | `Chip` / `Avatar` | OK |
 | feedback | empty | `EmptyState` | OK |
 | feedback | loading | `Spinner`, `LoadingState`, `Refreshing` | OK |

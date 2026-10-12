@@ -114,14 +114,18 @@ export function useDocument(
   const surface = useRef<((text: string) => void) | null>(null);
   const bindSurface = useCallback((receive: ((text: string) => void) | null) => { surface.current = receive; }, []);
 
-  const { peers, connected, initContent, applyLocalChange, updateCursor, isRemoteUpdate } =
+  /** The newest text, local or remote — what the collaboration room is offered and reconciled against. */
+  const latestText = useRef(content);
+  const { peers, connected, applyLocalChange, updateCursor, isRemoteUpdate } =
     useYjsCollab(
       editing && projectId ? String(projectId) : undefined,
       currentUsername,
       remote => {
+        latestText.current = remote;
         surface.current?.(remote);
         setContentRaw(remote);
       },
+      { readLocal: () => latestText.current },
     );
 
   /**
@@ -137,6 +141,7 @@ export function useDocument(
   }, []);
 
   const setContent = useCallback((value: string) => {
+    latestText.current = value;
     setContentRaw(value);
     markDirty();
     // Only push to Yjs for local edits, or a remote change echoes back.
@@ -147,23 +152,10 @@ export function useDocument(
   /*
    * The document arrives already fetched, so every field above is seeded from
    * it at first render rather than being filled in by an effect afterwards.
-   * What is left for an effect is the one thing that cannot happen during
-   * render: seeding the shared Yjs document for collaborators.
-   *
-   * Keyed on the id so that opening a second document — which the router does
-   * by remounting this route — starts its own handshake, and so that a re-render
-   * for any other reason does not re-seed and clobber a peer's edits.
+   * The shared Yjs text is not seeded from here: the room decides who starts
+   * it, once (see `useYjsCollab`). Seeding it from a timer here is what put
+   * documents in twice.
    */
-  useEffect(() => {
-    if (!editing) return;
-    const combined = documentContent(plan.topics);
-    // Ignored if a peer already populated it.
-    const timer = setTimeout(() => initContent(combined), 500);
-    return () => clearTimeout(timer);
-    // `initContent` is recreated on every collaboration state change; keying
-    // this on the document id is what actually matters.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan.id, editing]);
 
   // ── Save ────────────────────────────────────────────────────────────────
   const planFor = useCallback((overrides: Partial<LessonPlan> = {}): LessonPlan => {

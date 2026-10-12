@@ -12,18 +12,36 @@ to answer sync step 1 with.
 Documents live in memory only. Nothing here is the durable copy: the editor
 saves through the REST API, and a room is discarded once it has been empty for
 ``EMPTY_ROOM_TTL``.
+
+**One seed per room, decided here.** A CRDT text started independently in two
+places is two texts: merging them puts the document in twice. Browsers used to
+seed their own copy after a fixed 500 ms if the server's state had not arrived
+yet — and on a slow handshake two of them did, so an outline applied in one
+copy left the other copy's text glued to the end of the document. Now a room
+announces itself (``MSG_ROOM``: its epoch, and whether it has text yet), and
+only an unseeded room accepts a ``MSG_SEED``, once. Every client takes the text
+from the room.
+
+The epoch is new for every room. A client that reconnects to a room with a
+different epoch — the server restarted, or the room was dropped while it was
+away — is holding history from a different lineage, and starts a fresh copy
+instead of merging it in.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import uuid
 from typing import Iterable, Optional
 
 from pycrdt import (
     Awareness,
     Decoder,
     Doc,
+    Encoder,
+    Text,
     YMessageType,
     YSyncMessageType,
     create_awareness_message,
@@ -39,6 +57,15 @@ logger = logging.getLogger(__name__)
 #: How long an empty room is kept before its document is dropped, so a reload
 #: or a brief disconnection does not lose the in-memory state.
 EMPTY_ROOM_TTL = 30.0
+
+#: Server → client: ``{"epoch": str, "seeded": bool}`` as a var string.
+MSG_ROOM = 100
+#: Client → server: the text to start an unseeded room with, as a var string.
+MSG_SEED = 101
+#: The shared text's name; the browser reads ``ydoc.getText('content')``.
+TEXT_NAME = "content"
+#: A seed larger than this is refused (the REST body cap is in the same range).
+MAX_SEED_CHARS = 4_000_000
 
 
 class Connection:
@@ -65,6 +92,13 @@ class Room:
     def __init__(self, name: str) -> None:
         self.name = name
         self.doc = Doc()
+        self.text = self.doc.get(TEXT_NAME, type=Text)
+        #: Which room this is. A reconnecting client compares it with the last
+        #: one it saw to tell "same room, brief drop" from "a new room".
+        self.epoch = uuid.uuid4().hex
+        #: Whether the text has been started. Until then the room holds nothing,
+        #: and the first client's seed is taken.
+        self.seeded = False
         self.awareness = Awareness(self.doc)
         # Awareness() gives itself a local state on construction. The server is
         # not a participant with a cursor, and leaving it set makes every
@@ -126,6 +160,10 @@ class Room:
         connection = Connection(send)
         self.connections[key] = connection
 
+        # Which room this is comes first, so a client from an older room drops
+        # its copy before any of this room's state reaches it.
+        await connection.send(self._room_message())
+
         # Both sync steps, unprompted. Step 1 asks what the client has; step 2
         # hands over everything the server has, which is what makes a document
         # already in progress render for the person who just opened it.
@@ -185,6 +223,40 @@ class Room:
             update = read_message(message[1:])
             connection.client_ids.update(_client_ids_in(update))
             self.awareness.apply_awareness_update(update, key)
+
+        elif message_type == MSG_SEED:
+            self._seed(message[1:])
+
+    def _seed(self, payload: bytes) -> None:
+        """Start the room's text from the first client that offers it; ignore the rest.
+
+        Two clients that both found the room unseeded both offer; the second
+        offer arrives after the first was taken and is dropped, and that client
+        receives the first one's text like everybody else. The insert goes to
+        every connection, the sender included — its own copy is empty.
+        """
+        if self.seeded:
+            return
+        try:
+            text = Decoder(payload).read_var_string()
+        except Exception:
+            logger.debug("unreadable seed for room %r", self.name, exc_info=True)
+            return
+        if len(text) > MAX_SEED_CHARS:
+            logger.warning("refused a %d-character seed for room %r", len(text), self.name)
+            return
+        # A client predating the seed message may already have written into
+        # the text; it is not overwritten, only marked started.
+        if text and not str(self.text):
+            self.text.insert(0, text)
+        self.seeded = True
+        self._broadcast(self._room_message())
+
+    def _room_message(self) -> bytes:
+        encoder = Encoder()
+        encoder.write_var_uint(MSG_ROOM)
+        encoder.write_var_string(json.dumps({"epoch": self.epoch, "seeded": self.seeded}))
+        return encoder.to_bytes()
 
     # ── Lifetime ─────────────────────────────────────────────────────────
     @property
