@@ -120,6 +120,7 @@ Model API keys are not configured on the server: each user adds their own in the
 | `alembic upgrade head` | Apply database migrations |
 | `python -m backend.cli writing-check FILE.md` | Score a document's prose (sentence length, readability, repetition) |
 | `python -m backend.cli set-password <email>` | Set or reset an account's password |
+| `python -m backend.cli seed-demo [--share-with USERNAME]` | Fill the database with demo people, documents and community discussions (`--remove` takes them out) |
 
 With the backend running, the API reference is at **http://localhost:3000/docs**.
 

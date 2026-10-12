@@ -1,0 +1,79 @@
+\section{Two postulates}
+
+These notes cover the first four lessons of our Year 12 relativity unit. The aim is to derive everything from two statements, using nothing harder than Pythagoras and some algebra, so that students see the strange results as consequences rather than as facts to memorise.
+
+\begin{definition}[The postulates]
+\begin{enumerate}
+  \item The laws of physics are the same in every inertial frame of reference.
+  \item The speed of light in a vacuum, $c$, is the same in every inertial frame, whatever the motion of its source.
+\end{enumerate}
+\end{definition}
+
+The first postulate is old: Galileo would have agreed with it. The second is the radical one. If I throw a ball forward at $10\,\mathrm{m/s}$ from a train moving at $30\,\mathrm{m/s}$, someone on the platform measures $40\,\mathrm{m/s}$. If I switch on a torch instead, the platform measures $c$, not $c + 30\,\mathrm{m/s}$. Every experiment since Michelson and Morley agrees.
+
+Something has to give. Since speed is distance divided by time, if everyone measures the same speed for light, they cannot all agree about distances and times.
+
+\section{Time dilation}
+
+Imagine a \emph{light clock}: two mirrors a distance $L$ apart, with a pulse of light bouncing between them. In the clock's own rest frame, one tick (up and back) takes
+\[
+  \Delta t_0 = \frac{2L}{c}.
+\]
+
+Now watch the same clock moving sideways at speed $v$. Between leaving the bottom mirror and reaching the top one, the clock has moved, so the light travels along a diagonal. If one tick takes $\Delta t$ in our frame, each half of the diagonal has length $\sqrt{L^2 + (v\,\Delta t/2)^2}$, and the light covers both halves at speed $c$:
+\[
+  c\,\Delta t = 2\sqrt{L^2 + \left(\frac{v\,\Delta t}{2}\right)^2}.
+\]
+
+Squaring and rearranging gives
+\begin{equation}
+  \Delta t = \frac{\Delta t_0}{\sqrt{1 - v^2/c^2}} = \gamma\,\Delta t_0,
+  \qquad \gamma = \frac{1}{\sqrt{1 - v^2/c^2}}. \label{eq:dilation}
+\end{equation}
+
+Since $\gamma \ge 1$, the moving clock ticks \emph{more slowly} as measured by us. Nothing is wrong with the clock: in its own frame it ticks perfectly normally. Time itself runs differently between the two frames.
+
+\begin{example}[Muons]
+Muons are made in the upper atmosphere, about $15\,\mathrm{km}$ up, and have a mean lifetime of $2.2\,\mu\mathrm{s}$ at rest. Even at nearly $c$, they would travel only about $660\,\mathrm{m}$ in that time, so almost none should reach the ground. Yet we detect plenty. At $v = 0.995c$, $\gamma \approx 10$, so in our frame their lifetime is about $22\,\mu\mathrm{s}$, enough to cover several kilometres.
+\end{example}
+
+Students should check the value of $\gamma$ themselves. It is the first time the factor feels real rather than algebraic.
+
+\section{Length contraction}
+
+From the muon's point of view, it is not living longer: it lives its normal $2.2\,\mu\mathrm{s}$. For the two frames to agree that the muon reaches the ground, the atmosphere must be shorter in the muon's frame. An object of length $L_0$ in its own rest frame has length
+\begin{equation}
+  L = \frac{L_0}{\gamma} \label{eq:contraction}
+\end{equation}
+when it moves past us at speed $v$, along the direction of motion only. Lengths perpendicular to the motion are unchanged, which is exactly what we assumed for the light clock's mirrors.
+
+\section{Simultaneity}
+
+The hardest idea in the unit, and the one worth most time. Two events that are simultaneous in one frame are generally \emph{not} simultaneous in another.
+
+Put a lamp at the centre of a train carriage. Light from it reaches the front and back walls at the same moment, according to someone on the train. According to someone on the platform, the back wall is moving towards the light and the front wall away from it, and light travels at $c$ in both directions in their frame too. So the light reaches the back wall first.
+
+Neither observer is wrong. ``At the same time'' is not a fact about the events alone; it depends on the frame. Once students accept this, most of the apparent paradoxes, including the twins, untangle themselves.
+
+\section{Summary of results}
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+Quantity & Rest frame & Moving at $v$ \\
+\hline
+Time between ticks & $\Delta t_0$ & $\gamma\,\Delta t_0$ \\
+Length along the motion & $L_0$ & $L_0/\gamma$ \\
+Length across the motion & $L_0$ & $L_0$ \\
+\hline
+\end{tabular}
+\end{center}
+
+\section{Problems}
+
+\begin{enumerate}
+  \item Calculate $\gamma$ for $v = 0.6c$, $0.8c$ and $0.99c$. Plot $\gamma$ against $v/c$. Where does it start to matter?
+  \item A spaceship $100\,\mathrm{m}$ long in its own frame passes Earth at $0.8c$. How long is it according to Earth? How long does it take to pass a fixed point on Earth, in Earth's frame?
+  \item Using equation~\eqref{eq:dilation}, explain why GPS satellites need relativistic corrections. (They also need a gravitational correction from general relativity, which acts in the opposite direction; you do not need to calculate it.)
+  \item The twin who travels returns younger. Both twins see the other's clock running slow during the journey. Explain why the situation is not symmetric.
+\end{enumerate}

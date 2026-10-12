@@ -1,0 +1,82 @@
+\section{Pointwise convergence is not enough}
+
+These notes accompany weeks 5 and 6 of Analysis II. The question running through both weeks is simple: if a sequence of functions $f_n$ converges to $f$, which properties of the $f_n$ does $f$ inherit? Continuity? Integrals? Derivatives? With only pointwise convergence the honest answer is ``none of them, reliably'', and the examples below are worth working through until they feel uncomfortable.
+
+\begin{definition}[Pointwise convergence]
+Let $f_n, f \colon A \to \mathbb{R}$. We say $f_n \to f$ \emph{pointwise} on $A$ if for every $x \in A$ and every $\varepsilon > 0$ there is an $N$ such that $|f_n(x) - f(x)| < \varepsilon$ for all $n \ge N$.
+\end{definition}
+
+The important word is hidden: $N$ is allowed to depend on $x$. Each point converges in its own time.
+
+\begin{example}
+Let $f_n(x) = x^n$ on $[0,1]$. For $0 \le x < 1$ we have $x^n \to 0$, while $f_n(1) = 1$ for every $n$. So $f_n$ converges pointwise to the function that is $0$ on $[0,1)$ and $1$ at $x = 1$. Every $f_n$ is continuous; the limit is not.
+\end{example}
+
+Look at where the trouble comes from. For a point $x$ close to $1$, the sequence $x^n$ takes a very long time to fall below $\varepsilon$: we need $n > \log \varepsilon / \log x$, and this grows without bound as $x \to 1$. No single $N$ works for all $x$ at once.
+
+\section{Uniform convergence}
+
+\begin{definition}[Uniform convergence]
+We say $f_n \to f$ \emph{uniformly} on $A$ if for every $\varepsilon > 0$ there is an $N$ such that
+\[
+  |f_n(x) - f(x)| < \varepsilon \quad \text{for all } n \ge N \text{ and all } x \in A.
+\]
+\end{definition}
+
+Now $N$ depends only on $\varepsilon$. An equivalent formulation, often easier to check, uses the supremum norm $\|g\|_\infty = \sup_{x \in A} |g(x)|$:
+\begin{equation}
+  f_n \to f \text{ uniformly} \iff \|f_n - f\|_\infty \to 0. \label{eq:supnorm}
+\end{equation}
+
+Geometrically, \eqref{eq:supnorm} says that for large $n$ the whole graph of $f_n$ lies inside a band of width $2\varepsilon$ around the graph of $f$.
+
+\begin{example}
+For $f_n(x) = x^n$ on $[0,1)$ the pointwise limit is $f = 0$, but $\|f_n - 0\|_\infty = \sup_{0 \le x < 1} x^n = 1$ for every $n$. So the convergence is not uniform. On $[0, a]$ with $a < 1$, however, $\|f_n\|_\infty = a^n \to 0$, and the convergence is uniform.
+\end{example}
+
+That last example contains a pattern worth remembering: convergence is often uniform on every closed subinterval that stays away from the bad point, even when it fails on the whole domain.
+
+\section{What uniform convergence preserves}
+
+\begin{theorem}[Uniform limits of continuous functions]\label{thm:continuity}
+If each $f_n$ is continuous on $A$ and $f_n \to f$ uniformly on $A$, then $f$ is continuous on $A$.
+\end{theorem}
+
+\begin{proof}
+Fix $x_0 \in A$ and $\varepsilon > 0$. Choose $N$ with $\|f_N - f\|_\infty < \varepsilon/3$. Since $f_N$ is continuous at $x_0$, there is $\delta > 0$ such that $|f_N(x) - f_N(x_0)| < \varepsilon/3$ whenever $|x - x_0| < \delta$. For such $x$,
+\[
+  |f(x) - f(x_0)| \le |f(x) - f_N(x)| + |f_N(x) - f_N(x_0)| + |f_N(x_0) - f(x_0)| < \varepsilon.
+\]
+\end{proof}
+
+This is the ``$\varepsilon/3$ argument''. You will meet it again and again; it is worth understanding why uniformity is used exactly twice in it, once at $x$ and once at $x_0$, and why pointwise convergence would only have given us the second.
+
+\begin{theorem}[Integrals]\label{thm:integrals}
+If $f_n \to f$ uniformly on $[a,b]$ and each $f_n$ is integrable, then $f$ is integrable and
+\[
+  \int_a^b f_n \to \int_a^b f.
+\]
+\end{theorem}
+
+The proof is one line once integrability is settled: $\left|\int_a^b (f_n - f)\right| \le (b-a)\,\|f_n - f\|_\infty \to 0$.
+
+Pointwise convergence really does fail here. Take $f_n(x) = n^2 x (1 - x^2)^n$ on $[0,1]$. Each $f_n(x) \to 0$, yet a substitution shows $\int_0^1 f_n = \frac{n^2}{2(n+1)} \to \infty$. The mass of $f_n$ concentrates into an ever taller, ever thinner spike near $0$.
+
+\section{Derivatives need more}
+
+Uniform convergence of $f_n$ does \emph{not} make $f_n'$ converge to $f'$. The functions $f_n(x) = \frac{\sin(n^2 x)}{n}$ converge uniformly to $0$, since $\|f_n\|_\infty = 1/n$, but $f_n'(x) = n \cos(n^2 x)$ does not converge at all.
+
+\begin{theorem}[Differentiation]
+Suppose each $f_n$ is differentiable on $[a,b]$, the derivatives $f_n'$ converge uniformly on $[a,b]$, and $f_n(x_0)$ converges for some $x_0 \in [a,b]$. Then $f_n$ converges uniformly to a differentiable function $f$, and $f' = \lim f_n'$.
+\end{theorem}
+
+The hypothesis is on the derivatives, not the functions. That asymmetry surprises students every year, so it is worth asking them to explain it before showing the proof.
+
+\section{Exercises}
+
+\begin{enumerate}
+  \item Show that $f_n(x) = \frac{x}{1 + n x^2}$ converges uniformly on $\mathbb{R}$. (Find $\|f_n\|_\infty$ by differentiating.)
+  \item Does $f_n(x) = n x e^{-n x}$ converge uniformly on $[0, \infty)$? On $[1, \infty)$?
+  \item Prove the Weierstrass M-test: if $|g_k(x)| \le M_k$ on $A$ and $\sum M_k < \infty$, then $\sum g_k$ converges uniformly on $A$. Use it to show that $\sum_{k \ge 1} \frac{\cos(k x)}{k^2}$ defines a continuous function on $\mathbb{R}$.
+  \item Find a sequence of continuous functions on $[0,1]$ converging pointwise to a continuous limit, but not uniformly. What does this tell you about the converse of Theorem~\ref{thm:continuity}?
+\end{enumerate}

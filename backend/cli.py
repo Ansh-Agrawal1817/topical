@@ -3,7 +3,9 @@
 Small on purpose. These are the operations that have no place in the HTTP API
 because no signed-in user should be able to perform them — setting somebody
 else's password, and clearing out expired sessions — plus ``writing-check``,
-for measuring what the AI writes while its prompts are being tuned.
+for measuring what the AI writes while its prompts are being tuned, and
+``seed-demo``, which fills a database with demo people, documents and a
+community (and takes them out again).
 """
 
 from __future__ import annotations
@@ -161,6 +163,27 @@ async def writing_check(path: str | None, topic: str | None, sections: list[str]
     _print_report(rows, fmt)
 
 
+async def seed_demo(action: str, share_with: str | None = None) -> None:
+    """Add, remove or replace the demo content (see ``backend/seed``)."""
+    from . import seed
+
+    factory = _require_db()
+    if action == "dry-run":
+        print("Would add: " + "; ".join(seed.summary()))
+        return
+    async with factory() as db:
+        if action in ("remove", "reset"):
+            removed = await seed.remove(db)
+            print("Removed: " + ", ".join(f"{n} {what}" for what, n in removed.items()))
+        if action in ("add", "reset"):
+            try:
+                added = await seed.seed(db, share_with=share_with)
+            except RuntimeError as error:
+                sys.exit(str(error))
+            print("Added: " + ", ".join(f"{n} {what}" for what, n in added.items()))
+        await db.commit()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m backend.cli", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -184,6 +207,14 @@ def main() -> None:
     check.add_argument("--model", default="")
     check.add_argument("--format", default="mdx", choices=["mdx", "latex"])
 
+    demo = commands.add_parser("seed-demo", help="add demo people, documents and community posts")
+    mode = demo.add_mutually_exclusive_group()
+    mode.add_argument("--remove", action="store_true", help="delete everything the seed added")
+    mode.add_argument("--reset", action="store_true", help="remove, then add again")
+    mode.add_argument("--dry-run", action="store_true", help="say what would be added")
+    demo.add_argument("--share-with", metavar="USERNAME",
+                      help="add this existing account as a co-author on some demo documents")
+
     args = parser.parse_args()
 
     if args.command == "set-password":
@@ -197,6 +228,9 @@ def main() -> None:
             sys.exit("Give a file to score, or --topic and --sections to generate.")
         sections = [name.strip() for name in args.sections.split(",") if name.strip()]
         asyncio.run(writing_check(args.file, args.topic, sections, args.provider, args.model, args.format))
+    elif args.command == "seed-demo":
+        action = "remove" if args.remove else "reset" if args.reset else "dry-run" if args.dry_run else "add"
+        asyncio.run(seed_demo(action, args.share_with))
 
 
 if __name__ == "__main__":
